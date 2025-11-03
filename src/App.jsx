@@ -1,0 +1,133 @@
+import { useState } from 'react';
+import CsvViewer from './components/CsvViewer';
+import TodoList from './components/TodoList';
+import WelcomeScreen from './components/WelcomeScreen';
+
+/**
+ * Main application component managing menu navigation and screen rendering.
+ * Displays a menubar with File, Edit, View, To-Do, and Help menus.
+ */
+function App() {
+  const [openMenu, setOpenMenu] = useState(null);
+  const [activeScreen, setActiveScreen] = useState('welcome');
+
+  const menuItems = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New Budget…', disabled: true },
+        { label: 'Open…', disabled: true },
+        { label: 'Save', disabled: true },
+        null,
+        { label: 'Exit', disabled: true }
+      ]
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: 'Undo', disabled: true },
+        { label: 'Redo', disabled: true },
+        null,
+        { label: 'Cut', disabled: true },
+        { label: 'Copy', disabled: true },
+        { label: 'Paste', disabled: true }
+      ]
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Welcome Screen', target: 'welcome', description: 'Overview of the project and quick shortcuts.' },
+        { label: 'CSV Explorer', target: 'csv', description: 'Browse imported CSV files and preview their contents.' }
+      ]
+    },
+    {
+      label: 'To-Do',
+      items: [
+        { label: 'Open To-Do List', target: 'todo', description: 'Track the current work items for the budget app.' },
+        null,
+        { label: 'Add New Task…', disabled: true }
+      ]
+    },
+    {
+      label: 'Help',
+      items: [
+        { label: 'Documentation', disabled: true },
+        { label: 'About', disabled: true }
+      ]
+    }
+  ];
+
+  const handleMenuItemSelect = (item) => {
+    if (!item || item.disabled) {
+      return;
+    }
+
+    if (item.target) {
+      setActiveScreen(item.target);
+    }
+
+    if (typeof item.action === 'function') {
+      item.action();
+    }
+
+    setOpenMenu(null);
+  };
+
+  const renderActiveScreen = () => {
+    switch (activeScreen) {
+      case 'csv':
+        return <CsvViewer />;
+      case 'todo':
+        return <TodoList />;
+      case 'welcome':
+      default:
+        return <WelcomeScreen onNavigate={setActiveScreen} />;
+    }
+  };
+
+  return (
+    <>
+      <nav className="menubar">
+        {menuItems.map((menu, menuIndex) => (
+          <div
+            className={`menu-item ${openMenu === menuIndex ? 'open' : ''}`}
+            key={menu.label}
+            onMouseEnter={() => setOpenMenu(menuIndex)}
+            onMouseLeave={() => setOpenMenu(null)}
+          >
+            {menu.label}
+            {openMenu === menuIndex && (
+              <div className="dropdown">
+                {menu.items.map((rawItem, itemIndex) => {
+                  if (rawItem === null) {
+                    return <hr key={`${menu.label}-divider-${itemIndex}`} className="divider" />;
+                  }
+
+                  const item = typeof rawItem === 'string' ? { label: rawItem, disabled: true } : rawItem;
+                  const isActive = Boolean(item.target && item.target === activeScreen);
+
+                  return (
+                    <button
+                      key={`${menu.label}-item-${item.label}-${itemIndex}`}
+                      type="button"
+                      className={`dropdown-item ${isActive ? 'active' : ''}`}
+                      onClick={() => handleMenuItemSelect(item)}
+                      disabled={item.disabled}
+                    >
+                      <span className="dropdown-item-label">{item.label}</span>
+                      {item.description && <span className="dropdown-item-description">{item.description}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </nav>
+
+      <main className="content">{renderActiveScreen()}</main>
+    </>
+  );
+}
+
+export default App;
