@@ -10,23 +10,6 @@ import {
 } from './serverApi.js';
 
 const STORAGE_KEY_PREFIX = 'budget_transactions_';
-const SERVER_SYNC_ENABLED_KEY = 'budget_server_sync_enabled';
-
-/**
- * Checks if server sync is enabled.
- * @returns {boolean} True if server sync is enabled
- */
-export function isServerSyncEnabled() {
-  return localStorage.getItem(SERVER_SYNC_ENABLED_KEY) === 'true';
-}
-
-/**
- * Enables or disables server sync.
- * @param {boolean} enabled - Whether to enable server sync
- */
-export function setServerSyncEnabled(enabled) {
-  localStorage.setItem(SERVER_SYNC_ENABLED_KEY, enabled ? 'true' : 'false');
-}
 
 /**
  * Retrieves all transactions for a specific account from localStorage.
@@ -53,7 +36,7 @@ export function getTransactions(accountName) {
 
 /**
  * Saves transactions for a specific account to localStorage.
- * Optionally syncs to server if enabled.
+ * Does NOT automatically sync to server - use saveAccountToServer() explicitly.
  * @param {string} accountName - Name of the account (e.g., 'ING', 'NAB')
  * @param {Array<Object>} transactions - Array of transaction objects
  * @returns {boolean} True if save succeeded, false otherwise
@@ -66,15 +49,6 @@ export function saveTransactions(accountName, transactions) {
   try {
     const key = STORAGE_KEY_PREFIX + accountName;
     localStorage.setItem(key, JSON.stringify(transactions));
-    
-    // Sync to server if enabled
-    if (isServerSyncEnabled()) {
-      saveAccountToServer(accountName, transactions).catch(error => {
-        console.error('Failed to sync to server:', error);
-        // Don't fail the operation if server sync fails
-      });
-    }
-    
     return true;
   } catch (error) {
     console.error(`Failed to save transactions for ${accountName}:`, error);
@@ -111,8 +85,8 @@ export function listAccounts() {
 }
 
 /**
- * Deletes all transactions for a specific account.
- * Optionally deletes from server if enabled.
+ * Deletes all transactions for a specific account from localStorage.
+ * Does NOT automatically delete from server - caller should use deleteAccountFromServer() if needed.
  * @param {string} accountName - Name of the account to clear
  * @returns {boolean} True if deletion succeeded, false otherwise
  */
@@ -120,14 +94,6 @@ export function deleteAccount(accountName) {
   try {
     const key = STORAGE_KEY_PREFIX + accountName;
     localStorage.removeItem(key);
-    
-    // Delete from server if enabled
-    if (isServerSyncEnabled()) {
-      deleteAccountFromServer(accountName).catch(error => {
-        console.error('Failed to delete from server:', error);
-      });
-    }
-    
     return true;
   } catch (error) {
     console.error(`Failed to delete account ${accountName}:`, error);
@@ -170,13 +136,6 @@ export function renameAccount(oldName, newName) {
       // Rollback: delete the new account we just created
       deleteAccount(newName);
       return false;
-    }
-
-    // Rename on server if enabled
-    if (isServerSyncEnabled()) {
-      renameAccountOnServer(oldName, newName).catch(error => {
-        console.error('Failed to rename on server:', error);
-      });
     }
 
     return true;

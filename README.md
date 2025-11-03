@@ -7,7 +7,7 @@ A lightweight personal budget tracker built with React and Vite. Manage transact
 ### ✅ Implemented
 - **JSON Transaction Storage** - Create, rename, and delete account ledgers stored as JSON in browser localStorage or on server
 - **Multi-row CSV Export Format** - Export transactions as CSV with split transactions across categories linked by TransactionID
-- **Server Sync** - Automatically backup localStorage data to server for cross-device access and persistence
+- **Server Storage** - Optionally store accounts on a server for cross-device persistence (choose storage when creating an account; requires running the API server)
 - **Export & Backup** - Download individual accounts as CSV or export all data as a ZIP archive
 - **Storage Monitoring** - Real-time localStorage usage tracking with visual indicators
 - **Data Security Warnings** - Clear alerts about browser storage volatility to prevent data loss

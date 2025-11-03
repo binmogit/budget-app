@@ -4,13 +4,6 @@
  */
 const TODO_ITEMS = [
   {
-    id: 'server-backup',
-    title: 'Implement server-side CSV backup',
-    description: 'Build API endpoints to sync localStorage data to server storage, ensuring transactions persist beyond browser storage. Should support automatic sync and manual backup/restore.',
-    status: 'In Progress',
-    owner: 'Infrastructure'
-  },
-  {
     id: 'transaction-entry-tools',
     title: 'Build transaction entry tools',
     description: 'Create guided forms for adding new transactions with split support and validation. TransactionID auto-generation will be added after localStorage is stable.',
@@ -20,8 +13,8 @@ const TODO_ITEMS = [
   {
     id: 'csv-inline-editing',
     title: 'Enable inline CSV editing',
-    description: 'Allow editing existing transactions directly from the CSV preview table with validation. Depends on persistent storage being implemented first.',
-    status: 'Blocked',
+    description: 'Allow editing existing transactions directly from the CSV preview table with validation. Now that persistent storage (localStorage and server) is implemented, this can proceed.',
+    status: 'Planned',
     owner: 'Data Entry'
   },
   {
@@ -30,13 +23,6 @@ const TODO_ITEMS = [
     description: 'Build stacked charts using Chart.js (react-chartjs-2) to show account balances over time, with each account layered to display the total. Focus on time-series visualization and category distribution.',
     status: 'Planned',
     owner: 'Analytics'
-  },
-  {
-    id: 'first-run-import',
-    title: 'Design first-run CSV import flow',
-    description: 'Detect missing data files and prompt the user to upload their own CSV when the app boots.',
-    status: 'Planned',
-    owner: 'Developer Experience'
   },
   {
     id: 'design-budget-ui',

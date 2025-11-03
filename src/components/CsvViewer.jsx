@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import JSZip from 'jszip';
 import { getTransactions, listAccounts, transactionsToCSV, saveTransactions, deleteAccount, renameAccount } from '../utils/transactionStorage.js';
-import { checkServerHealth, fetchAccounts, saveAccountToServer, deleteAccountFromServer } from '../utils/serverApi.js';
+import { checkServerHealth, fetchAccounts, fetchAccountTransactions, saveAccountToServer, deleteAccountFromServer } from '../utils/serverApi.js';
 import CreateAccountDialog from './CreateAccountDialog.jsx';
 import InputDialog from './InputDialog.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import Toast from './Toast.jsx';
 
 const csvModules = import.meta.glob('../data/**/*.csv', { as: 'url', eager: true });
 
@@ -77,6 +78,13 @@ function CsvViewer() {
   const [serverOnline, setServerOnline] = useState(false);
   const [serverAccounts, setServerAccounts] = useState(new Set());
 
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type });
+  };
+
   const discoveredFiles = useMemo(() => {
     // Bundled CSV files from src/data
     const bundledFiles = Object.entries(csvModules).map(([path, url]) => {
@@ -97,16 +105,15 @@ function CsvViewer() {
     const storedFiles = storedAccounts.map((accountName) => {
       const transactions = getTransactions(accountName);
       const csvText = transactionsToCSV(transactions);
-      const blob = new Blob([csvText], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(new Blob([csvText], { type: 'text/csv' }));
       
-      // Determine source: if account exists on server, show as server; otherwise localStorage
+      // Determine source: if account exists on server as well, mark it 'server'; otherwise localStorage
       const storageSource = serverAccounts.has(accountName) ? 'server' : 'localStorage';
       
       return {
         id: `storage:${accountName}`,
-        name: `${accountName}.csv`,
-        relativePath: `${accountName}.csv`,
+        name: accountName, // No extension for JSON storage
+        relativePath: accountName,
         url,
         size: formatSize(null, csvText.length),
         sizeBytes: csvText.length,
@@ -116,8 +123,28 @@ function CsvViewer() {
       };
     });
 
-    return [...bundledFiles, ...storedFiles].sort((a, b) => a.name.localeCompare(b.name));
-  }, [refreshKey, serverAccounts]);
+    // Add server-only accounts (present on server but not in localStorage)
+    const serverOnlyFiles = [];
+    if (serverOnline) {
+      for (const acc of serverAccounts) {
+        if (!storedAccounts.includes(acc)) {
+          serverOnlyFiles.push({
+            id: `server:${acc}`,
+            name: acc, // No extension for JSON storage
+            relativePath: acc,
+            url: null,
+            size: null,
+            sizeBytes: 0,
+            source: 'server',
+            accountName: acc,
+            transactionCount: null,
+          });
+        }
+      }
+    }
+
+    return [...bundledFiles, ...storedFiles, ...serverOnlyFiles].sort((a, b) => a.name.localeCompare(b.name));
+  }, [refreshKey, serverAccounts, serverOnline]);
 
   useEffect(() => {
     setFiles(discoveredFiles);
@@ -137,6 +164,35 @@ function CsvViewer() {
       }
 
       try {
+        // If file is stored on server only, fetch transactions from API
+        if (file.source === 'server') {
+          try {
+            const transactions = await fetchAccountTransactions(file.accountName);
+            const csvText = transactionsToCSV(transactions);
+            const parsed = parseCSV(csvText);
+            const updatedSize = formatSize(null, csvText.length);
+
+            // Cache parsed data and update table
+            parsedCacheRef.current.set(file.id, { data: parsed, size: updatedSize });
+            setTableData(parsed);
+            setStatus('ready');
+
+            // Update files entry with size and transaction count and generated blob url
+            const blobUrl = URL.createObjectURL(new Blob([csvText], { type: 'text/csv' }));
+            setFiles((prev) =>
+              prev.map((entry) =>
+                entry.id === file.id
+                  ? { ...entry, size: updatedSize, transactionCount: transactions.length, url: blobUrl }
+                  : entry,
+              ),
+            );
+          } catch (srvErr) {
+            throw new Error(`Unable to load server account ${file.accountName}: ${srvErr?.message || srvErr}`);
+          }
+          return;
+        }
+
+        // Otherwise fetch the file URL (bundled or local blob)
         const response = await fetch(file.url);
         if (!response.ok) {
           throw new Error(`Unable to load ${file.name}`);
@@ -260,13 +316,18 @@ function CsvViewer() {
     }
   };
 
-  // Delete the currently selected localStorage account
+  // Delete the currently selected account
   const handleDeleteAccount = () => {
     const currentFile = files.find(f => f.id === selectedFileId);
     
-    if (!currentFile || currentFile.source !== 'localStorage') {
-      // TODO: Show error notification
-      console.warn('Please select a localStorage file to delete.');
+    if (!currentFile) {
+      console.warn('No file selected.');
+      return;
+    }
+
+    // Can't delete bundled CSV files
+    if (currentFile.source === 'bundled') {
+      showToast('Cannot delete bundled example files. These are read-only.', 'warning');
       return;
     }
 
@@ -274,9 +335,23 @@ function CsvViewer() {
     setShowDeleteDialog(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (accountToDelete) {
+      const isServer = accountToDelete.source === 'server';
+      
+      // Delete from localStorage
       const success = deleteAccount(accountToDelete.accountName);
+      
+      // If it was a server account, also delete from server
+      if (isServer && success) {
+        try {
+          await deleteAccountFromServer(accountToDelete.accountName);
+        } catch (error) {
+          console.error('Failed to delete from server:', error);
+          showToast(`Account deleted from localStorage but failed to delete from server: ${error.message}`, 'error');
+        }
+      }
+      
       if (success) {
         setRefreshKey(prev => prev + 1); // Refresh file list
         setSelectedFileId(null);
@@ -285,12 +360,18 @@ function CsvViewer() {
     }
   };
 
-  // Rename the currently selected localStorage account
+  // Rename the currently selected account
   const handleRenameAccount = () => {
     const currentFile = files.find(f => f.id === selectedFileId);
     
-    if (!currentFile || currentFile.source !== 'localStorage') {
-      console.warn('Please select a localStorage file to rename.');
+    if (!currentFile) {
+      console.warn('No file selected.');
+      return;
+    }
+
+    // Can't rename bundled CSV files
+    if (currentFile.source === 'bundled') {
+      showToast('Cannot rename bundled example files. These are read-only.', 'warning');
       return;
     }
 
@@ -320,8 +401,14 @@ function CsvViewer() {
   const handleMoveAccount = () => {
     const currentFile = files.find(f => f.id === selectedFileId);
     
-    if (!currentFile || currentFile.source === 'bundled') {
-      console.warn('Cannot move bundled files.');
+    if (!currentFile) {
+      console.warn('No file selected.');
+      return;
+    }
+
+    // Can't move bundled CSV files
+    if (currentFile.source === 'bundled') {
+      showToast('Cannot move bundled example files. These are read-only.', 'warning');
       return;
     }
 
@@ -609,29 +696,33 @@ function CsvViewer() {
             <div className="metadata-row">
               <span className="metadata-label">Source:</span>
               <span className="metadata-value">
-                {selectedFile.source === 'localStorage' ? '📦 localStorage' : '📁 Bundled (src/data)'}
+                {selectedFile.source === 'localStorage' && '💾 localStorage'}
+                {selectedFile.source === 'server' && '☁️ Server'}
+                {selectedFile.source === 'bundled' && '📁 Bundled (src/data)'}
               </span>
             </div>
-            {selectedFile.source === 'localStorage' && (
-              <>
-                <div className="metadata-row">
-                  <span className="metadata-label">Transactions:</span>
-                  <span className="metadata-value">{selectedFile.transactionCount}</span>
-                </div>
-                <div className="metadata-row">
-                  <span className="metadata-label">Size:</span>
-                  <span className="metadata-value">{selectedFile.size}</span>
-                </div>
-                <div className="metadata-warning">
-                  ⚠️ Data stored in browser localStorage. Export regularly to avoid data loss.
-                </div>
-              </>
+
+            {/* Show transactions and size when available for both localStorage and server entries */}
+            {(selectedFile.transactionCount != null) && (
+              <div className="metadata-row">
+                <span className="metadata-label">Transactions:</span>
+                <span className="metadata-value">{selectedFile.transactionCount}</span>
+              </div>
             )}
-            {selectedFile.source === 'bundled' && selectedFile.size && (
+
+            {(selectedFile.size) && (
               <div className="metadata-row">
                 <span className="metadata-label">Size:</span>
                 <span className="metadata-value">{selectedFile.size}</span>
               </div>
+            )}
+
+            {selectedFile.source === 'localStorage' && (
+              <div className="metadata-warning">⚠️ Data stored in browser localStorage. Export regularly to avoid data loss.</div>
+            )}
+
+            {selectedFile.source === 'server' && (
+              <div className="metadata-note">☁️ This account is stored on the configured server.</div>
             )}
           </div>
         )}
@@ -665,6 +756,14 @@ function CsvViewer() {
         )}
       </div>
       </div>
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </>
   );
 }

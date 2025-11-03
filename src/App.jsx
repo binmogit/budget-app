@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import CsvViewer from './components/CsvViewer';
 import TodoList from './components/TodoList';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -10,6 +10,18 @@ import WelcomeScreen from './components/WelcomeScreen';
 function App() {
   const [openMenu, setOpenMenu] = useState(null);
   const [activeScreen, setActiveScreen] = useState('welcome');
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (openMenu !== null && !event.target.closest('.menubar')) {
+        setOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openMenu]);
 
   const menuItems = [
     {
@@ -87,15 +99,24 @@ function App() {
 
   return (
     <>
-      <nav className="menubar">
+      <nav className="menubar" onMouseLeave={() => setOpenMenu(null)}>
         {menuItems.map((menu, menuIndex) => (
           <div
             className={`menu-item ${openMenu === menuIndex ? 'open' : ''}`}
             key={menu.label}
-            onMouseEnter={() => setOpenMenu(menuIndex)}
-            onMouseLeave={() => setOpenMenu(null)}
           >
-            {menu.label}
+            <div
+              className="menu-label"
+              onClick={() => setOpenMenu(openMenu === menuIndex ? null : menuIndex)}
+              onMouseEnter={() => {
+                // Only open on hover if another menu is already open
+                if (openMenu !== null && openMenu !== menuIndex) {
+                  setOpenMenu(menuIndex);
+                }
+              }}
+            >
+              {menu.label}
+            </div>
             {openMenu === menuIndex && (
               <div className="dropdown">
                 {menu.items.map((rawItem, itemIndex) => {

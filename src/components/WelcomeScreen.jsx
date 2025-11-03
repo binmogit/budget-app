@@ -23,18 +23,18 @@ function WelcomeScreen({ onNavigate }) {
       </header>
       <section className="feature-grid">
         <article className="feature-tile">
-          <h3>localStorage Transactions</h3>
+          <h3>Dual Storage Options</h3>
           <p>
-            Create and manage transaction accounts directly in your browser. Data persists across sessions, with export functionality to back up your financial records as CSV files.
+            Choose between browser localStorage for quick access or server storage for cross-device sync. Create, rename, delete, and move accounts between storage locations with full export functionality.
           </p>
         </article>
         <article className="feature-tile">
           <h3>Data Security First</h3>
-          <p>Clear warnings about browser storage limitations, one-click export for all accounts, and storage usage tracking ensure your financial data stays safe.</p>
+          <p>Server backup keeps your financial data safe across devices and browser wipes. Export all accounts as CSV with one click, track localStorage usage, and get clear warnings about data volatility.</p>
         </article>
         <article className="feature-tile">
           <h3>Next Steps</h3>
-          <p>Server-side backup for cross-device sync, guided transaction entry forms with split support, and interactive charts to visualize spending patterns.</p>
+          <p>Guided transaction entry forms with split support, inline editing for existing transactions, and interactive charts to visualize spending patterns over time.</p>
         </article>
       </section>
     </div>

@@ -6,6 +6,10 @@
 - TODO_ITEMS and STATUS_TONE constants live in TodoList.jsx; keep new status labels mapped to CSS tokens before rendering.
 - WelcomeScreen.jsx contains feature highlights that should be updated when major functionality changes; keep feature descriptions aligned with current capabilities and roadmap.
 
+**UI/UX Standards (CRITICAL)**
+- **NO BROWSER ALERTS**: Never use `alert()`, `prompt()`, or `confirm()` in production code. Use Toast.jsx for notifications, Modal.jsx/InputDialog.jsx/ConfirmDialog.jsx for dialogs.
+- All user feedback must be in-app components, not browser dialogs—this is mandatory for accessibility and UX consistency.
+
 **Data Security & Persistence (CRITICAL PRIORITY)**
 - Data security and backup are paramount—users track real financial transactions and cannot afford data loss.
 - User-created accounts are stored as **JSON** in localStorage (array of transaction objects); only bundled example files and exports use CSV format.
@@ -30,6 +34,7 @@
 - localStorage files show storage usage stats and prominent warnings about data volatility.
 - Export functionality converts JSON transaction data to multi-row CSV format for backup or migration.
 - Server sync toggle shows online/offline status; when offline, data only saves to localStorage.
+- User notifications use Toast.jsx component (never browser alerts)—errors, warnings, and info messages appear as dismissible toasts.
 
 **CSV Transaction Format**
 - **Storage Format**: User accounts stored as JSON (array of objects with Date, TransactionID, Description, Category, Amount properties).
@@ -62,8 +67,7 @@
 - Use fetch-compatible APIs when loading local assets; CsvViewer caches via Map keyed by import.meta.glob IDs.
 - Export default function components to stay consistent with existing modules.
 - Place screen components in src/components; place shared utilities in src/utils with relative imports (e.g., ../utils/foo.js).
-- Avoid browser alerts, prompts, and confirms (alert(), prompt(), confirm()) outside of debugging; design in-app UI elements for user interactions like confirmations and text input instead.
-- Use Modal.jsx, InputDialog.jsx, and ConfirmDialog.jsx for user interactions requiring dialogs; these maintain consistent styling and behavior.
+- **CRITICAL: NEVER use browser alerts, prompts, or confirms (alert(), prompt(), confirm()) in production code.** Always design proper in-app UI components for user interactions. Use Modal.jsx, InputDialog.jsx, ConfirmDialog.jsx for dialogs, and Toast.jsx for notifications. Browser alerts break the user experience and are not accessible. The only acceptable use is for temporary debugging during development.
 - Button styling: use .button-primary (accent background), .button-secondary (transparent), and .button-danger (red, for destructive actions like delete).
 
 **Documentation**
