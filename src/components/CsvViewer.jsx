@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import JSZip from 'jszip';
-import { getTransactions, listAccounts, transactionsToCSV, saveTransactions, deleteAccount, renameAccount, isServerSyncEnabled, setServerSyncEnabled } from '../utils/transactionStorage.js';
-import { checkServerHealth, fetchAccounts } from '../utils/serverApi.js';
+import { getTransactions, listAccounts, transactionsToCSV, saveTransactions, deleteAccount, renameAccount } from '../utils/transactionStorage.js';
+import { checkServerHealth, fetchAccounts, saveAccountToServer, deleteAccountFromServer } from '../utils/serverApi.js';
+import CreateAccountDialog from './CreateAccountDialog.jsx';
 import InputDialog from './InputDialog.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
@@ -67,11 +68,12 @@ function CsvViewer() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState(null);
   const [accountToRename, setAccountToRename] = useState(null);
+  const [accountToMove, setAccountToMove] = useState(null);
   
   // Server sync state
-  const [serverSyncEnabled, setServerSyncEnabledState] = useState(isServerSyncEnabled());
   const [serverOnline, setServerOnline] = useState(false);
   const [serverAccounts, setServerAccounts] = useState(new Set());
 
@@ -222,19 +224,11 @@ function CsvViewer() {
     updateServerAccounts();
   }, [refreshKey, serverOnline]);
 
-  // Toggle server sync
-  const handleToggleServerSync = () => {
-    const newState = !serverSyncEnabled;
-    setServerSyncEnabled(newState);
-    setServerSyncEnabledState(newState);
-  };
-
   // Create a new account with sample transactions
-  const handleCreateNewAccount = (accountName) => {
+  const handleCreateNewAccount = async (accountName, storageType) => {
     const existingAccounts = listAccounts();
     
     if (existingAccounts.includes(accountName)) {
-      // TODO: Show error notification
       console.warn(`Account "${accountName}" already exists.`);
       return;
     }
@@ -249,7 +243,18 @@ function CsvViewer() {
       },
     ];
     
+    // Save to localStorage first
     const success = saveTransactions(accountName, sampleTransactions);
+    
+    // If server storage requested and server is online, sync to server
+    if (success && storageType === 'server' && serverOnline) {
+      try {
+        await saveAccountToServer(accountName, sampleTransactions);
+      } catch (error) {
+        console.error('Failed to save to server:', error);
+      }
+    }
+    
     if (success) {
       setRefreshKey(prev => prev + 1); // Refresh file list
     }
@@ -309,6 +314,53 @@ function CsvViewer() {
       }
       setAccountToRename(null);
     }
+  };
+
+  // Move account between localStorage and server
+  const handleMoveAccount = () => {
+    const currentFile = files.find(f => f.id === selectedFileId);
+    
+    if (!currentFile || currentFile.source === 'bundled') {
+      console.warn('Cannot move bundled files.');
+      return;
+    }
+
+    setAccountToMove(currentFile);
+    setShowMoveDialog(true);
+  };
+
+  const confirmMove = async () => {
+    if (!accountToMove) return;
+
+    const accountName = accountToMove.accountName;
+    const transactions = getTransactions(accountName);
+    
+    if (accountToMove.source === 'localStorage') {
+      // Move to server
+      if (!serverOnline) {
+        console.warn('Server is offline. Cannot move to server.');
+        return;
+      }
+      
+      try {
+        await saveAccountToServer(accountName, transactions);
+        setRefreshKey(prev => prev + 1);
+        console.log(`Moved ${accountName} to server`);
+      } catch (error) {
+        console.error('Failed to move to server:', error);
+      }
+    } else {
+      // Move from server to localStorage-only
+      try {
+        await deleteAccountFromServer(accountName);
+        setRefreshKey(prev => prev + 1);
+        console.log(`Removed ${accountName} from server (now localStorage only)`);
+      } catch (error) {
+        console.error('Failed to remove from server:', error);
+      }
+    }
+    
+    setAccountToMove(null);
   };
 
   // Get localStorage usage statistics
@@ -401,14 +453,11 @@ function CsvViewer() {
 
   return (
     <>
-      <InputDialog
+      <CreateAccountDialog
         isOpen={showCreateDialog}
         onClose={() => setShowCreateDialog(false)}
         onSubmit={handleCreateNewAccount}
-        title="Create New Account"
-        label="Account Name"
-        placeholder="e.g., NAB, ING, CommSec"
-        submitText="Create"
+        serverOnline={serverOnline}
       />
 
       <ConfirmDialog
@@ -436,6 +485,22 @@ function CsvViewer() {
         submitText="Rename"
       />
 
+      <ConfirmDialog
+        isOpen={showMoveDialog}
+        onClose={() => {
+          setShowMoveDialog(false);
+          setAccountToMove(null);
+        }}
+        onConfirm={confirmMove}
+        title={accountToMove?.source === 'localStorage' ? 'Move to Server' : 'Remove from Server'}
+        message={
+          accountToMove?.source === 'localStorage'
+            ? `Move ${accountToMove?.accountName} to server storage? The account will be synced to the server.`
+            : `Remove ${accountToMove?.accountName} from server? The account will remain in localStorage only.`
+        }
+        confirmText={accountToMove?.source === 'localStorage' ? 'Move to Server' : 'Remove from Server'}
+      />
+
       <div className="directory-view">
       <div className="file-list-pane">
         <h2 className="pane-title">Available CSV Files</h2>
@@ -448,6 +513,18 @@ function CsvViewer() {
           >
             New
           </button>
+          <button 
+            type="button" 
+            onClick={handleMoveAccount}
+            className="button-secondary"
+            style={{ flex: 1 }}
+            disabled={!selectedFile || selectedFile.source === 'bundled'}
+            title={selectedFile?.source === 'localStorage' ? 'Move to server' : selectedFile?.source === 'server' ? 'Remove from server' : 'Cannot move bundled files'}
+          >
+            Move
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
           <button 
             type="button" 
             onClick={handleRenameAccount}
@@ -492,23 +569,18 @@ function CsvViewer() {
             <div className="storage-bar-fill" style={{ width: `${storageStats.percentUsed}%` }}></div>
           </div>
         </div>
-        <div className="server-sync-toggle">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={serverSyncEnabled}
-              onChange={handleToggleServerSync}
-            />
-            <span>Server Sync</span>
-            <span style={{ fontSize: '0.85rem', color: serverOnline ? '#4ade80' : '#f87171' }}>
+        <div className="server-status">
+          <div className="storage-label">Server Status</div>
+          <div style={{ fontSize: '0.9rem', marginTop: '4px' }}>
+            <span style={{ color: serverOnline ? '#4ade80' : '#f87171' }}>
               {serverOnline ? '🟢 Online' : '🔴 Offline'}
             </span>
-          </label>
-          {serverSyncEnabled && !serverOnline && (
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Server unreachable. Data will only save to localStorage.
-            </div>
-          )}
+            {serverOnline && (
+              <span style={{ marginLeft: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                ({serverAccounts.size} account{serverAccounts.size !== 1 ? 's' : ''} on server)
+              </span>
+            )}
+          </div>
         </div>
         <div className="file-list">
           {files.length === 0 && <div className="empty-state">Add CSV files under src/data to see them here.</div>}

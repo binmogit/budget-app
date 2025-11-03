@@ -253,6 +253,14 @@ button:hover { border-color: var(--accent); }
   font-size: 0.9rem;
 }
 
+/* Server status */
+.server-status {
+  padding: 12px;
+  margin-top: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
 /* File metadata */
 .file-metadata {
   padding: 16px;

@@ -38,7 +38,7 @@
 - Required columns: Date, TransactionID, Description, Category, Amount.
 - Split transactions share the same Date, TransactionID, and Description but differ in Category and Amount.
 - Example split: a $6.79 grocery purchase covering both Food ($3.80) and TobAlc ($2.99) becomes two rows with TransactionID=1.
-- Categories span incomes (Gov, Work, Interest, Dividends), account transfers (Cash, NAB, ING, CommSec, etc.), and expenses (Food, Retail, Rent, Health, etc.).
+- Categories are user-defined and completely dynamic—any value in the Category column is valid.
 - Income categories typically have positive amounts; expenses and transfers are negative.
 - TransactionIDs are entered manually for now; auto-generation will be added after storage layer is stable.
 - Server stores accounts as JSON files in server/data/ directory (one file per account).

@@ -70,10 +70,14 @@ Server data is stored in `server/data/` as JSON files (one per account).
 ### Creating Accounts
 1. Navigate to **CSV Explorer** from the welcome screen
 2. Click **New** to create a new account (e.g., "ING", "NAB", "CommSec")
-3. Each account starts with a sample transaction
+3. Choose storage location:
+   - **💾 Browser Storage** - Stored in localStorage (device-specific)
+   - **☁️ Server Storage** - Stored on server (persists across devices)
+4. Each account starts with a sample transaction
 
-### Managing Transactions
+### Managing Accounts
 - **View**: Select an account from the file list to preview transactions (rendered as CSV table)
+- **Move**: Move accounts between localStorage and server storage
 - **Rename**: Select an account and click **Rename** to change its name
 - **Delete**: Select an account and click **Delete** (requires confirmation)
 - **Export**: Download a single account's data as CSV or use **Export All** for a ZIP archive of all accounts
@@ -91,10 +95,10 @@ Server data is stored in `server/data/` as JSON files (one per account).
 
 **Protection options:**
 1. **Export Regularly**: Use **Export All** to download timestamped ZIP backups
-2. **Enable Server Sync**: Toggle "Server Sync" in CSV Explorer to automatically backup to the API server
-   - Server data persists across browser wipes and device changes
-   - Survives server restarts (stored in `server/data/`)
-   - Must run the API server (`npm run server` or `npm run dev:full`)
+2. **Use Server Storage**: When creating accounts, choose "☁️ Server Storage" for automatic persistence across devices
+3. **Move to Server**: Use the **Move** button to migrate existing localStorage accounts to server
+
+Server data persists across browser wipes, device changes, and server restarts (stored in `server/data/`). Must run the API server (`npm run server` or `npm run dev:full`).
 
 ## Server-Side Storage
 
@@ -150,23 +154,20 @@ When you export accounts or work with bundled example files, transactions use a 
 
 ```csv
 Date,TransactionID,Description,Category,Amount
-03/11/2025,1,THE GOOD GROCER WEMB,Food,-3.80
-03/11/2025,1,THE GOOD GROCER WEMB,TobAlc,-2.99
+03/11/2025,1,Supermarket,Food,-3.80
+03/11/2025,1,Supermarket,Retail,-2.99
 ```
 
 ### Required Columns
 - **Date** - Transaction date (DD/MM/YYYY)
 - **TransactionID** - Unique identifier linking split rows
 - **Description** - Merchant or transaction note
-- **Category** - Income, expense, or account transfer category
+- **Category** - Income, expense, or account transfer category (user-defined)
 - **Amount** - Positive for income, negative for expenses/transfers
 
 **Note**: While the UI displays data as CSV tables and exports to CSV format, user-created accounts are actually stored as **JSON** (both in localStorage and on the server) for efficiency. CSV is only used for bundled example files and export functionality.
 
-### Categories
-- **Income**: Gov, Work, Interest, Dividends
-- **Accounts**: Cash, NAB, ING, CommSec, PayG, etc.
-- **Expenses**: Food, Retail, Rent, Health, Elec, Gas, etc.
+Categories are completely dynamic—any value you enter in the Category column becomes a valid category. Common examples include income sources (salary, interest), account names (checking, savings), and expense types (groceries, utilities, entertainment).
 
 ## Project Structure
 
