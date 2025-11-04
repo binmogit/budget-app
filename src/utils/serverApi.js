@@ -4,12 +4,16 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const SERVER_DISABLED = !import.meta.env.VITE_API_URL && import.meta.env.PROD;
 
 /**
  * Fetches all account names from server.
  * @returns {Promise<string[]>} Array of account names
  */
 export async function fetchAccounts() {
+  if (SERVER_DISABLED) {
+    return [];
+  }
   const response = await fetch(`${API_BASE_URL}/accounts`);
   if (!response.ok) {
     throw new Error('Failed to fetch accounts from server');
@@ -146,6 +150,9 @@ export async function syncAllToServer(accountsData) {
  * @returns {Promise<boolean>} True if server is online
  */
 export async function checkServerHealth() {
+  if (SERVER_DISABLED) {
+    return false;
+  }
   try {
     const response = await fetch(`${API_BASE_URL}/health`, {
       method: 'GET',
