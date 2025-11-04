@@ -2,15 +2,39 @@
 
 A lightweight personal finance tracker built with React and Vite. Manage transactions across multiple accounts with intelligent CSV import, export backups, and optional server sync—no complex setup required.
 
+## 🚀 Live Demo
+
+**[Try it now →](https://binmogit.github.io/budget-app/)**
+
+The live demo runs in **localStorage-only mode** (no server component). Your data stays private in your browser and is never uploaded anywhere. For full functionality with cross-device sync, run the app locally with the server enabled.
+
 ## Features
 
 - **Multi-Account Management** - Create and organize multiple account ledgers (checking, savings, credit cards)
 - **Smart CSV Import** - Automatically detects and transforms CSV formats (Amount-based or Debit/Credit columns)
-- **Flexible Storage** - Choose between browser localStorage or server-side JSON storage for each account
+- **Flexible Storage** - Choose between browser localStorage (demo/local use) or server-side JSON storage (local setup only)
 - **Export & Backup** - Download individual accounts as CSV or export all data as a ZIP archive
 - **Split Transactions** - Track expenses across multiple categories with linked TransactionIDs
 
+## Storage Options
+
+### 💾 localStorage (Default in Demo)
+- Data stored entirely in your browser
+- **Private** - never sent to any server
+- **Portable** - works offline, no setup required
+- **Volatile** - cleared by browser maintenance or cache clearing
+- ⚠️ **Export regularly** to avoid data loss
+
+### ☁️ Server Storage (Local Setup Only)
+- Persistent JSON storage across devices
+- Requires running the Express server locally (`npm run dev:full`)
+- Data stored in `server/data/` directory
+- **Not available in the GitHub Pages demo** (everyone would share the same data)
+- For personal use: set up your own server or use localhost
+
 ## Installation
+
+**Want to try it first?** Check out the **[live demo](https://binmogit.github.io/budget-app/)** (localStorage-only).
 
 ### Prerequisites
 - Node.js 18+
@@ -24,10 +48,10 @@ git clone https://github.com/binmogit/budget-app.git
 cd budget-app
 npm install
 
-# Start development server (frontend only)
+# Start development server (localStorage only - like the demo)
 npm run dev
 
-# OR start with backend server for persistent storage
+# OR start with backend server for persistent storage across devices
 npm run dev:full
 ```
 
@@ -42,7 +66,9 @@ The app runs at `http://localhost:5173`. The optional API server runs at `http:/
    - **Create empty** or **with sample transaction**
    - **Import from CSV** - supports standard (Amount column) or bank format (Debit/Credit columns)
 3. If importing, select your **date format** (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, or auto-detect) to avoid ambiguity
-4. Select storage: **💾 Browser** (localStorage) or **☁️ Server** (persistent)
+4. Select storage: 
+   - **💾 Browser** (localStorage) - always available
+   - **☁️ Server** - only available when running locally with `npm run dev:full`
 
 ### Managing Transactions
 
@@ -104,6 +130,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Important Notes
 
-⚠️ **Browser storage is volatile** - localStorage can be cleared by browser maintenance or device changes. Use **Export All** regularly or enable server storage for automatic backup.
+⚠️ **Browser storage is volatile** - localStorage can be cleared by browser maintenance or device changes. Use **Export All** regularly or run the app locally with server storage enabled for automatic backup.
+
+**Demo vs. Local Setup:**
+- **[Live Demo](https://binmogit.github.io/budget-app/)** - localStorage only, no server, data stays in your browser
+- **Local Setup** - Full functionality including optional server sync across devices
 
 **No warranty**: This tool is for personal budget tracking only. Always maintain backups of financial data.
