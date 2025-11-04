@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import CsvViewer from './components/CsvViewer';
+import AccountManager from './components/AccountManager';
 import TodoList from './components/TodoList';
 import WelcomeScreen from './components/WelcomeScreen';
 
@@ -49,7 +49,7 @@ function App() {
       label: 'View',
       items: [
         { label: 'Welcome Screen', target: 'welcome', description: 'Overview of the project and quick shortcuts.' },
-        { label: 'CSV Explorer', target: 'csv', description: 'Browse imported CSV files and preview their contents.' }
+        { label: 'Account Manager', target: 'accounts', description: 'Manage accounts and view/edit transactions.' }
       ]
     },
     {
@@ -87,8 +87,8 @@ function App() {
 
   const renderActiveScreen = () => {
     switch (activeScreen) {
-      case 'csv':
-        return <CsvViewer />;
+      case 'accounts':
+        return <AccountManager />;
       case 'todo':
         return <TodoList />;
       case 'welcome':

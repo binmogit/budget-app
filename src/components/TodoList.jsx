@@ -4,6 +4,20 @@
  */
 const TODO_ITEMS = [
   {
+    id: 'csv-import-formats',
+    title: 'Expand CSV import format support',
+    description: 'Add support for additional CSV formats from different banks and financial institutions. Develop more import methods that detect and handle various column layouts, date formats, and split transaction representations.',
+    status: 'Planned',
+    owner: 'Data Entry'
+  },
+  {
+    id: 'csv-column-mapping',
+    title: 'Advanced CSV column mapping',
+    description: 'Enable manual column mapping during CSV import to match imported columns to JSON fields (Date, TransactionID, Description, Category, Amount). Support detecting split transactions from additional columns.',
+    status: 'Planned',
+    owner: 'Data Entry'
+  },
+  {
     id: 'transaction-entry-tools',
     title: 'Build transaction entry tools',
     description: 'Create guided forms for adding new transactions with split support and validation. TransactionID auto-generation will be added after localStorage is stable.',
@@ -14,7 +28,7 @@ const TODO_ITEMS = [
     id: 'csv-inline-editing',
     title: 'Enable inline CSV editing',
     description: 'Allow editing existing transactions directly from the CSV preview table with validation. Now that persistent storage (localStorage and server) is implemented, this can proceed.',
-    status: 'Planned',
+    status: 'In Progress',
     owner: 'Data Entry'
   },
   {
@@ -53,7 +67,8 @@ const TODO_ITEMS = [
 const STATUS_TONE = {
   'In Progress': 'status-progress',
   Planned: 'status-planned',
-  Blocked: 'status-blocked'
+  Blocked: 'status-blocked',
+  Complete: 'status-complete'
 };
 
 /**

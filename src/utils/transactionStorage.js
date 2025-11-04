@@ -3,12 +3,6 @@
  * Manages user-created transaction data organized by account name.
  */
 
-import { 
-  saveAccountToServer, 
-  deleteAccountFromServer, 
-  renameAccountOnServer
-} from './serverApi.js';
-
 const STORAGE_KEY_PREFIX = 'budget_transactions_';
 
 /**

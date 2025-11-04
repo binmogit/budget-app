@@ -10,11 +10,11 @@ function WelcomeScreen({ onNavigate }) {
       <header className="screen-header">
         <h1 className="screen-title">Welcome to your Budget App sandbox</h1>
         <p className="screen-subtitle">
-          Explore the CSV explorer, keep tabs on the roadmap, and get a feel for where the product is headed.
+          Manage your accounts, track transactions, and keep tabs on the roadmap as the product evolves.
         </p>
         <div className="screen-actions">
-          <button type="button" className="primary-cta" onClick={() => onNavigate('csv')}>
-            Open CSV Explorer
+          <button type="button" className="primary-cta" onClick={() => onNavigate('accounts')}>
+            Open Account Manager
           </button>
           <button type="button" className="secondary-cta" onClick={() => onNavigate('todo')}>
             View To-Do List

@@ -37,6 +37,7 @@
     "@googleapis/drive": "^19.1.0",
     "chart.js": "^4.5.1",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "express": "^5.1.0",
     "jszip": "^3.10.1",
     "papaparse": "^5.4.1",
