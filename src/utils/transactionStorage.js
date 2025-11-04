@@ -4,6 +4,7 @@
  */
 
 const STORAGE_KEY_PREFIX = 'budget_transactions_';
+const METADATA_KEY_PREFIX = 'budget_metadata_';
 
 /**
  * Retrieves all transactions for a specific account from localStorage.
@@ -21,10 +22,37 @@ export function getTransactions(accountName) {
       return [];
     }
     const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed : [];
+    
+    // Handle legacy format (array) and new format (object with transactions + metadata)
+    if (Array.isArray(parsed)) {
+      return parsed;
+    } else if (parsed && Array.isArray(parsed.transactions)) {
+      return parsed.transactions;
+    }
+    
+    return [];
   } catch (error) {
     console.error(`Failed to retrieve transactions for ${accountName}:`, error);
     return [];
+  }
+}
+
+/**
+ * Retrieves metadata for a specific account from localStorage.
+ * @param {string} accountName - Name of the account
+ * @returns {Object|null} Metadata object with lastModified, transactionCount, etc.
+ */
+export function getAccountMetadata(accountName) {
+  try {
+    const key = METADATA_KEY_PREFIX + accountName;
+    const stored = localStorage.getItem(key);
+    if (!stored) {
+      return null;
+    }
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error(`Failed to retrieve metadata for ${accountName}:`, error);
+    return null;
   }
 }
 
@@ -33,16 +61,47 @@ export function getTransactions(accountName) {
  * Does NOT automatically sync to server - use saveAccountToServer() explicitly.
  * @param {string} accountName - Name of the account (e.g., 'ING', 'NAB')
  * @param {Array<Object>} transactions - Array of transaction objects
+ * @param {Object} options - Optional save options
+ * @param {boolean} options.syncedToServer - Whether this data is synced with server
+ * @param {boolean} options.serverAccount - Whether this is a server-associated account
  * @returns {boolean} True if save succeeded, false otherwise
  * @example
  * const success = saveTransactions('ING', [
  *   {Date: '03/11/2025', TransactionID: '1', Description: 'Groceries', Category: 'Food', Amount: '-3.80'}
  * ]);
  */
-export function saveTransactions(accountName, transactions) {
+export function saveTransactions(accountName, transactions, options = {}) {
   try {
     const key = STORAGE_KEY_PREFIX + accountName;
+    const metadataKey = METADATA_KEY_PREFIX + accountName;
+    
+    // Save transactions
     localStorage.setItem(key, JSON.stringify(transactions));
+    
+    // Get existing metadata to preserve flags if not explicitly set
+    let existingMetadata = null;
+    try {
+      const stored = localStorage.getItem(metadataKey);
+      if (stored) {
+        existingMetadata = JSON.parse(stored);
+      }
+    } catch (err) {
+      // Ignore parse errors
+    }
+    
+    // Save metadata
+    const metadata = {
+      lastModified: Date.now(),
+      transactionCount: transactions.length,
+      syncedToServer: options.syncedToServer !== undefined 
+        ? options.syncedToServer 
+        : (existingMetadata?.syncedToServer ?? false),
+      serverAccount: options.serverAccount !== undefined
+        ? options.serverAccount
+        : (existingMetadata?.serverAccount ?? false),
+    };
+    localStorage.setItem(metadataKey, JSON.stringify(metadata));
+    
     return true;
   } catch (error) {
     console.error(`Failed to save transactions for ${accountName}:`, error);
@@ -87,7 +146,9 @@ export function listAccounts() {
 export function deleteAccount(accountName) {
   try {
     const key = STORAGE_KEY_PREFIX + accountName;
+    const metadataKey = METADATA_KEY_PREFIX + accountName;
     localStorage.removeItem(key);
+    localStorage.removeItem(metadataKey);
     return true;
   } catch (error) {
     console.error(`Failed to delete account ${accountName}:`, error);
@@ -118,13 +179,13 @@ export function renameAccount(oldName, newName) {
       return false;
     }
 
-    // Save to new name
+    // Save to new name (this will create new metadata)
     const saveSuccess = saveTransactions(newName, transactions);
     if (!saveSuccess) {
       return false;
     }
 
-    // Delete old account
+    // Delete old account (removes both transactions and metadata)
     const deleteSuccess = deleteAccount(oldName);
     if (!deleteSuccess) {
       // Rollback: delete the new account we just created
@@ -167,4 +228,54 @@ export function transactionsToCSV(transactions) {
   });
 
   return [headers.join(','), ...rows].join('\n');
+}
+
+/**
+ * Marks an account as synced with server.
+ * Updates metadata to indicate data is in sync with server.
+ * @param {string} accountName - Name of the account
+ * @returns {boolean} True if update succeeded
+ */
+export function markAsSynced(accountName) {
+  try {
+    const metadataKey = METADATA_KEY_PREFIX + accountName;
+    const stored = localStorage.getItem(metadataKey);
+    if (!stored) {
+      return false;
+    }
+    
+    const metadata = JSON.parse(stored);
+    metadata.syncedToServer = true;
+    metadata.serverAccount = true; // If we're syncing to server, it's a server account
+    localStorage.setItem(metadataKey, JSON.stringify(metadata));
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to mark ${accountName} as synced:`, error);
+    return false;
+  }
+}
+
+/**
+ * Marks an account as not synced with server (local changes pending).
+ * @param {string} accountName - Name of the account
+ * @returns {boolean} True if update succeeded
+ */
+export function markAsUnsynced(accountName) {
+  try {
+    const metadataKey = METADATA_KEY_PREFIX + accountName;
+    const stored = localStorage.getItem(metadataKey);
+    if (!stored) {
+      return false;
+    }
+    
+    const metadata = JSON.parse(stored);
+    metadata.syncedToServer = false;
+    localStorage.setItem(metadataKey, JSON.stringify(metadata));
+    
+    return true;
+  } catch (error) {
+    console.error(`Failed to mark ${accountName} as unsynced:`, error);
+    return false;
+  }
 }

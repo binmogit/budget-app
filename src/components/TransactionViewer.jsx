@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { saveTransactions } from '../utils/transactionStorage.js';
-import { saveAccountToServer } from '../utils/serverApi.js';
+import { saveTransactions, getAccountMetadata, markAsSynced, markAsUnsynced } from '../utils/transactionStorage.js';
+import { saveAccountToServer, fetchAccountMetadata, fetchAccountTransactions } from '../utils/serverApi.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import ConflictResolutionDialog from './ConflictResolutionDialog.jsx';
 import Toast from './Toast.jsx';
+import { transactionsToCSV } from '../utils/transactionStorage.js';
 
 /**
  * Transaction viewer and editor component.
@@ -13,6 +15,7 @@ import Toast from './Toast.jsx';
  * @param {Object} props.tableData - Table data with headers and rows
  * @param {string} props.status - Current status ('idle', 'loading', 'ready', 'error')
  * @param {string|null} props.error - Error message if status is 'error'
+ * @param {boolean} props.serverOnline - Whether the server is currently online
  * @param {Function} props.onTableDataChange - Callback when table data changes after save
  * @param {Function} props.onRefresh - Callback to trigger refresh after save
  */
@@ -21,6 +24,7 @@ function TransactionViewer({
   tableData,
   status,
   error,
+  serverOnline,
   onTableDataChange,
   onRefresh,
 }) {
@@ -29,6 +33,11 @@ function TransactionViewer({
   const [editedData, setEditedData] = useState({ headers: [], rows: [] });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
+
+  // Conflict resolution state
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [conflictData, setConflictData] = useState(null);
+  const [pendingSaveData, setPendingSaveData] = useState(null);
 
   // Toast notification state
   const [toast, setToast] = useState(null);
@@ -105,33 +114,132 @@ function TransactionViewer({
         }
       }
 
-      // Save to localStorage
-      const success = saveTransactions(selectedAccount.accountName, transactions);
-      
-      if (!success) {
-        showToast('Failed to save changes to localStorage', 'error');
-        return;
-      }
-
-      // If it's a server account, also save to server
+      // If it's a server account, check for conflicts before saving
       if (selectedAccount.source === 'server') {
         try {
-          await saveAccountToServer(selectedAccount.accountName, transactions);
+          // Fetch server metadata to check if it's been modified since we loaded it
+          const serverMetadata = await fetchAccountMetadata(selectedAccount.accountName);
+          const localMetadata = getAccountMetadata(selectedAccount.accountName);
+          
+          // Check if both versions exist and have been modified
+          if (serverMetadata && localMetadata) {
+            // If server was modified more recently than local, there's a conflict
+            if (serverMetadata.lastModified > localMetadata.lastModified) {
+              // Fetch full server data for comparison
+              const serverTransactions = await fetchAccountTransactions(selectedAccount.accountName);
+              
+              // Prepare conflict dialog data
+              const localPreview = transactions.slice(0, 3).map(tx => 
+                `${tx.Date} | ${tx.Description} | ${tx.Amount}`
+              ).join('\n') + (transactions.length > 3 ? '\n...' : '');
+              
+              const serverPreview = serverTransactions.slice(0, 3).map(tx => 
+                `${tx.Date} | ${tx.Description} | ${tx.Amount}`
+              ).join('\n') + (serverTransactions.length > 3 ? '\n...' : '');
+              
+              setConflictData({
+                local: {
+                  transactionCount: transactions.length,
+                  lastModified: localMetadata.lastModified,
+                  preview: localPreview,
+                },
+                server: {
+                  transactionCount: serverTransactions.length,
+                  lastModified: serverMetadata.lastModified,
+                  preview: serverPreview,
+                },
+              });
+              
+              // Store the pending save data for when user resolves conflict
+              setPendingSaveData(transactions);
+              setShowConflictDialog(true);
+              return; // Don't save yet - wait for user to resolve conflict
+            }
+          }
         } catch (error) {
-          showToast(`Saved to localStorage but failed to sync to server: ${error.message}`, 'warning');
+          console.warn('Failed to check for conflicts, proceeding with save:', error);
         }
       }
 
-      // Update the table data and exit edit mode
-      onTableDataChange({ ...editedData });
-      setIsEditMode(false);
-      setHasUnsavedChanges(false);
-      onRefresh(); // Refresh file list to update sizes
+      // No conflict detected, proceed with normal save
+      await performSave(transactions);
       
-      showToast('Changes saved successfully', 'success');
     } catch (error) {
       showToast(`Failed to save changes: ${error.message}`, 'error');
     }
+  };
+
+  // Handle conflict resolution choice
+  const handleConflictResolution = async (choice) => {
+    setShowConflictDialog(false);
+    
+    try {
+      if (choice === 'local') {
+        // User wants to keep local version - overwrite server
+        await performSave(pendingSaveData);
+        // performSave already handles marking as synced
+      } else if (choice === 'server') {
+        // User wants to keep server version - discard local changes
+        const serverTransactions = await fetchAccountTransactions(selectedAccount.accountName);
+        
+        // Update localStorage with server data and mark as synced
+        saveTransactions(selectedAccount.accountName, serverTransactions, { syncedToServer: true });
+        
+        // Update UI
+        const csvText = transactionsToCSV(serverTransactions);
+        const headers = csvText.split('\n')[0].split(',');
+        const rows = csvText.split('\n').slice(1).filter(row => row.trim()).map(row => row.split(','));
+        
+        onTableDataChange({ headers, rows });
+        setIsEditMode(false);
+        setHasUnsavedChanges(false);
+        onRefresh();
+        
+        showToast('Server version loaded and saved locally', 'success');
+      }
+    } catch (error) {
+      showToast(`Failed to resolve conflict: ${error.message}`, 'error');
+    } finally {
+      setPendingSaveData(null);
+      setConflictData(null);
+    }
+  };
+
+  // Perform the actual save operation (separated for reuse)
+  const performSave = async (transactions) => {
+    const isServerAccount = selectedAccount.source === 'server' || 
+                           selectedAccount.source === 'serverOffline' || 
+                           selectedAccount.source === 'conflict';
+    
+    // Save to localStorage (mark as unsynced for now if it's a server account)
+    const success = saveTransactions(selectedAccount.accountName, transactions, {
+      syncedToServer: false, // Mark as unsynced until server save succeeds
+    });
+    
+    if (!success) {
+      showToast('Failed to save changes to localStorage', 'error');
+      return;
+    }
+
+    // If it's a server account, also save to server
+    if (isServerAccount) {
+      try {
+        await saveAccountToServer(selectedAccount.accountName, transactions);
+        markAsSynced(selectedAccount.accountName); // Mark as synced after successful server save
+        showToast('Changes saved successfully', 'success');
+      } catch (error) {
+        markAsUnsynced(selectedAccount.accountName); // Ensure marked as unsynced if server save failed
+        showToast(`Saved to localStorage but failed to sync to server: ${error.message}`, 'warning');
+      }
+    } else {
+      showToast('Changes saved successfully', 'success');
+    }
+
+    // Update the table data and exit edit mode
+    onTableDataChange({ ...editedData });
+    setIsEditMode(false);
+    setHasUnsavedChanges(false);
+    onRefresh(); // Refresh file list to update sizes and badges
   };
 
   // Add a new empty row
@@ -165,6 +273,19 @@ function TransactionViewer({
         confirmText="Discard"
       />
 
+      <ConflictResolutionDialog
+        isOpen={showConflictDialog}
+        onClose={() => {
+          setShowConflictDialog(false);
+          setPendingSaveData(null);
+          setConflictData(null);
+        }}
+        onResolve={handleConflictResolution}
+        localData={conflictData?.local}
+        serverData={conflictData?.server}
+        accountName={selectedAccount?.accountName}
+      />
+
       <div className="preview-pane">
         {selectedAccount && status === 'ready' && (
           <div className="file-metadata">
@@ -173,6 +294,8 @@ function TransactionViewer({
               <span className="metadata-value">
                 {selectedAccount.source === 'localStorage' && '💾 localStorage'}
                 {selectedAccount.source === 'server' && '☁️ Server'}
+                {selectedAccount.source === 'serverOffline' && '⛈️ Server (Offline)'}
+                {selectedAccount.source === 'conflict' && '⚠️ Unsaved Changes'}
               </span>
             </div>
 
@@ -198,6 +321,24 @@ function TransactionViewer({
 
             {selectedAccount.source === 'server' && (
               <div className="metadata-note">☁️ This account is stored on the configured server.</div>
+            )}
+
+            {selectedAccount.source === 'serverOffline' && (
+              <>
+                <div className="metadata-warning">⚠️ Data stored in browser localStorage. Export regularly to avoid data loss.</div>
+                <div className="metadata-warning">⚠️ Server is offline. You can sync changes when server is available.</div>
+              </>
+            )}
+
+            {selectedAccount.source === 'conflict' && (
+              <>
+                <div className="metadata-warning">⚠️ Data stored in browser localStorage. Export regularly to avoid data loss.</div>
+                {serverOnline ? (
+                  <div className="metadata-warning">⚠️ This account has unsaved local changes that need to be synced to the server.</div>
+                ) : (
+                  <div className="metadata-warning">⚠️ Server is offline. You can sync changes when server is available.</div>
+                )}
+              </>
             )}
           </div>
         )}

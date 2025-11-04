@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import JSZip from 'jszip';
-import { getTransactions, listAccounts, transactionsToCSV, saveTransactions, deleteAccount, renameAccount } from '../utils/transactionStorage.js';
-import { checkServerHealth, fetchAccounts, fetchAccountTransactions, saveAccountToServer, deleteAccountFromServer } from '../utils/serverApi.js';
+import { getTransactions, listAccounts, transactionsToCSV, saveTransactions, deleteAccount, renameAccount, getAccountMetadata, markAsSynced, markAsUnsynced } from '../utils/transactionStorage.js';
+import { checkServerHealth, fetchAccounts, fetchAccountTransactions, saveAccountToServer, deleteAccountFromServer, fetchAccountMetadata } from '../utils/serverApi.js';
 import AccountNavigator from './AccountNavigator.jsx';
 import TransactionViewer from './TransactionViewer.jsx';
+import ConflictResolutionDialog from './ConflictResolutionDialog.jsx';
+import Toast from './Toast.jsx';
 
 /**
  * Formats a byte count into a human-readable file size string.
@@ -65,16 +67,51 @@ function AccountManager() {
   const [serverOnline, setServerOnline] = useState(false);
   const [serverAccounts, setServerAccounts] = useState(new Set());
 
+  // Conflict resolution state
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [conflictData, setConflictData] = useState(null);
+  const [conflictAccountId, setConflictAccountId] = useState(null);
+
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type });
+  };
+
   const discoveredAccounts = useMemo(() => {
     // User-created accounts from localStorage (stored as JSON, displayed as CSV)
     const storedAccounts = listAccounts();
     const storedFiles = storedAccounts.map((accountName) => {
       const transactions = getTransactions(accountName);
+      const metadata = getAccountMetadata(accountName);
       const csvText = transactionsToCSV(transactions);
       const url = URL.createObjectURL(new Blob([csvText], { type: 'text/csv' }));
       
-      // Determine source: if account exists on server as well, mark it 'server'; otherwise localStorage
-      const storageSource = serverAccounts.has(accountName) ? 'server' : 'localStorage';
+      // Determine source based on sync status
+      let storageSource;
+      const isSynced = metadata?.syncedToServer ?? false;
+      const existsOnServer = serverAccounts.has(accountName);
+      const isServerAccount = metadata?.serverAccount ?? false; // Flag indicating this is a server-associated account
+      
+      if (isSynced && serverOnline && existsOnServer) {
+        // Account is synced and server confirms it exists
+        storageSource = 'server';
+      } else if (isSynced && !serverOnline) {
+        // Account is synced but server is offline (show as server but indicate offline status)
+        storageSource = 'serverOffline';
+      } else if (isSynced && serverOnline && !existsOnServer) {
+        // Account marked as synced but server doesn't have it (server data lost/changed)
+        // This is a conflict situation - server may have been reset
+        storageSource = 'conflict';
+      } else if (!isSynced && (existsOnServer || (!serverOnline && isServerAccount))) {
+        // Account exists on server but has unsaved local changes, OR
+        // Server is offline and this is a server account with unsaved changes
+        storageSource = 'conflict';
+      } else {
+        // Account is localStorage-only (never associated with server)
+        storageSource = 'localStorage';
+      }
       
       return {
         id: `storage:${accountName}`,
@@ -145,13 +182,70 @@ function AccountManager() {
       }
 
       try {
-        // If account is stored on server only, fetch transactions from API
-        if (account.source === 'server') {
+        // If account needs conflict resolution or is a server account
+        const needsConflictCheck = (account.source === 'conflict' || account.source === 'serverOffline') && serverOnline;
+        const isServerAccount = account.source === 'server' && serverOnline;
+        
+        if (isServerAccount || needsConflictCheck) {
           try {
             const transactions = await fetchAccountTransactions(account.accountName);
+            
+            // Check if this account also exists in localStorage (possible conflict)
+            const localTransactions = getTransactions(account.accountName);
+            if (localTransactions.length > 0) {
+              // Both versions exist - check for conflicts
+              const localMetadata = getAccountMetadata(account.accountName);
+              const serverMetadata = await fetchAccountMetadata(account.accountName);
+              
+              // Show conflict dialog if:
+              // 1. Account source is 'conflict' (has unsaved changes), OR
+              // 2. Account is marked as unsynced and has different data
+              const shouldShowConflict = 
+                account.source === 'conflict' || // Always show for conflict badge
+                (localMetadata && serverMetadata && !localMetadata.syncedToServer && (
+                  localMetadata.lastModified !== serverMetadata.lastModified ||
+                  localMetadata.transactionCount !== serverMetadata.transactionCount
+                ));
+              
+              if (shouldShowConflict && localMetadata && serverMetadata) {
+                // Show conflict resolution dialog
+                const localPreview = localTransactions.slice(0, 3).map(tx => 
+                  `${tx.Date} | ${tx.Description} | ${tx.Amount}`
+                ).join('\n') + (localTransactions.length > 3 ? '\n...' : '');
+                
+                const serverPreview = transactions.slice(0, 3).map(tx => 
+                  `${tx.Date} | ${tx.Description} | ${tx.Amount}`
+                ).join('\n') + (transactions.length > 3 ? '\n...' : '');
+                
+                setConflictData({
+                  local: {
+                    transactionCount: localTransactions.length,
+                    lastModified: localMetadata.lastModified,
+                    preview: localPreview,
+                    transactions: localTransactions,
+                  },
+                  server: {
+                    transactionCount: transactions.length,
+                    lastModified: serverMetadata.lastModified,
+                    preview: serverPreview,
+                    transactions: transactions,
+                  },
+                });
+                
+                setConflictAccountId(account.id);
+                setShowConflictDialog(true);
+                setStatus('idle'); // Reset status while waiting for user choice
+                return; // Don't load data yet - wait for conflict resolution
+              }
+            }
+            
+            // No conflict - proceed normally
             const csvText = transactionsToCSV(transactions);
             const parsed = parseCSV(csvText);
             const updatedSize = formatSize(null, csvText.length);
+            
+            // Save to localStorage and mark as synced server account
+            saveTransactions(account.accountName, transactions, { syncedToServer: true, serverAccount: true });
 
             // Cache parsed data and update table
             parsedCacheRef.current.set(account.id, { data: parsed, size: updatedSize });
@@ -203,7 +297,7 @@ function AccountManager() {
         setStatus('error');
       }
     },
-    [],
+    [serverOnline],
   );
 
   useEffect(() => {
@@ -282,15 +376,25 @@ function AccountManager() {
       },
     ];
     
-    // Save to localStorage first
-    const success = saveTransactions(accountName, accountTransactions);
+    // Determine if this should be marked as synced
+    const willSyncToServer = storageType === 'server' && serverOnline;
+    
+    // Save to localStorage with appropriate sync status
+    const success = saveTransactions(accountName, accountTransactions, {
+      syncedToServer: willSyncToServer,
+      serverAccount: willSyncToServer, // Mark as server account if we're syncing to server
+    });
     
     // If server storage requested and server is online, sync to server
-    if (success && storageType === 'server' && serverOnline) {
+    if (success && willSyncToServer) {
       try {
         await saveAccountToServer(accountName, accountTransactions);
+        // Mark as synced in case save didn't set it
+        markAsSynced(accountName);
       } catch (error) {
         console.error('Failed to save to server:', error);
+        // Mark as unsynced since server save failed
+        markAsUnsynced(accountName);
       }
     }
     
@@ -343,27 +447,37 @@ function AccountManager() {
     const transactions = getTransactions(accountName);
     
     if (account.source === 'localStorage') {
-      // Move to server
+      // Move to server (localStorage → server)
       if (!serverOnline) {
-        console.warn('Server is offline. Cannot move to server.');
+        showToast('Cannot move to server: Server is offline', 'error');
         return;
       }
       
       try {
         await saveAccountToServer(accountName, transactions);
+        markAsSynced(accountName); // Mark as synced after successful server save
         setRefreshKey(prev => prev + 1);
-        console.log(`Moved ${accountName} to server`);
+        showToast(`Moved ${accountName} to server`, 'success');
       } catch (error) {
         console.error('Failed to move to server:', error);
+        markAsUnsynced(accountName); // Ensure it's marked as unsynced if save failed
+        showToast(`Failed to move to server: ${error.message}`, 'error');
       }
     } else {
-      // Move from server to localStorage-only
+      // Move from server to localStorage-only (server/serverOffline/conflict → localStorage)
+      if (!serverOnline) {
+        showToast('Cannot move to localStorage: Server is offline. This prevents accidental data loss.', 'error');
+        return;
+      }
+      
       try {
         await deleteAccountFromServer(accountName);
+        markAsUnsynced(accountName); // Mark as unsynced since it's no longer on server
         setRefreshKey(prev => prev + 1);
-        console.log(`Removed ${accountName} from server (now localStorage only)`);
+        showToast(`Removed ${accountName} from server (now localStorage only)`, 'success');
       } catch (error) {
         console.error('Failed to remove from server:', error);
+        showToast(`Failed to remove from server: ${error.message}`, 'error');
       }
     }
   };
@@ -459,33 +573,114 @@ function AccountManager() {
     setRefreshKey(prev => prev + 1);
   };
 
+  // Handle conflict resolution when loading an account
+  const handleLoadConflictResolution = async (choice) => {
+    setShowConflictDialog(false);
+    
+    if (!conflictAccountId || !conflictData) {
+      return;
+    }
+    
+    const account = accounts.find(a => a.id === conflictAccountId);
+    if (!account) {
+      return;
+    }
+    
+    try {
+      let transactionsToUse;
+      
+      if (choice === 'local') {
+        // User wants to keep local version - save it to server
+        transactionsToUse = conflictData.local.transactions;
+        await saveAccountToServer(account.accountName, transactionsToUse);
+        markAsSynced(account.accountName); // Mark as synced after server save
+        showToast('Local version saved to server', 'success');
+      } else if (choice === 'server') {
+        // User wants to keep server version - save it to localStorage
+        transactionsToUse = conflictData.server.transactions;
+        saveTransactions(account.accountName, transactionsToUse, { syncedToServer: true, serverAccount: true });
+        showToast('Server version saved locally', 'success');
+      }
+      
+      // Load the chosen version into the UI
+      const csvText = transactionsToCSV(transactionsToUse);
+      const parsed = parseCSV(csvText);
+      const updatedSize = formatSize(null, csvText.length);
+      
+      parsedCacheRef.current.set(account.id, { data: parsed, size: updatedSize });
+      setTableData(parsed);
+      setStatus('ready');
+      
+      // Update accounts list
+      const blobUrl = URL.createObjectURL(new Blob([csvText], { type: 'text/csv' }));
+      setAccounts((prev) =>
+        prev.map((entry) =>
+          entry.id === account.id
+            ? { ...entry, size: updatedSize, transactionCount: transactionsToUse.length, url: blobUrl }
+            : entry,
+        ),
+      );
+      
+    } catch (error) {
+      showToast(`Failed to resolve conflict: ${error.message}`, 'error');
+    } finally {
+      setConflictData(null);
+      setConflictAccountId(null);
+      setRefreshKey(prev => prev + 1); // Refresh to update badges
+    }
+  };
+
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
 
   return (
-    <div className="directory-view">
-      <AccountNavigator
-        accounts={accounts}
-        selectedAccountId={selectedAccountId}
-        onSelectAccount={handleAccountSelection}
-        serverOnline={serverOnline}
-        serverAccounts={serverAccounts}
-        refreshKey={refreshKey}
-        onCreateAccount={handleCreateAccount}
-        onDeleteAccount={handleDeleteAccount}
-        onRenameAccount={handleRenameAccount}
-        onMoveAccount={handleMoveAccount}
-        onExportAccount={handleExportAccount}
-        onExportAll={handleExportAll}
+    <>
+      <ConflictResolutionDialog
+        isOpen={showConflictDialog}
+        onClose={() => {
+          setShowConflictDialog(false);
+          setConflictData(null);
+          setConflictAccountId(null);
+        }}
+        onResolve={handleLoadConflictResolution}
+        localData={conflictData?.local}
+        serverData={conflictData?.server}
+        accountName={accounts.find(a => a.id === conflictAccountId)?.accountName}
       />
-      <TransactionViewer
-        selectedAccount={selectedAccount}
-        tableData={tableData}
-        status={status}
-        error={error}
-        onTableDataChange={handleTableDataChange}
-        onRefresh={handleRefresh}
-      />
-    </div>
+
+      <div className="directory-view">
+        <AccountNavigator
+          accounts={accounts}
+          selectedAccountId={selectedAccountId}
+          onSelectAccount={handleAccountSelection}
+          serverOnline={serverOnline}
+          serverAccounts={serverAccounts}
+          refreshKey={refreshKey}
+          onCreateAccount={handleCreateAccount}
+          onDeleteAccount={handleDeleteAccount}
+          onRenameAccount={handleRenameAccount}
+          onMoveAccount={handleMoveAccount}
+          onExportAccount={handleExportAccount}
+          onExportAll={handleExportAll}
+        />
+        <TransactionViewer
+          selectedAccount={selectedAccount}
+          tableData={tableData}
+          status={status}
+          error={error}
+          serverOnline={serverOnline}
+          onTableDataChange={handleTableDataChange}
+          onRefresh={handleRefresh}
+        />
+      </div>
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+    </>
   );
 }
 

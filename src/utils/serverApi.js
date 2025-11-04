@@ -36,6 +36,22 @@ export async function fetchAccountTransactions(accountName) {
 }
 
 /**
+ * Fetches metadata for a specific account from server without downloading full data.
+ * @param {string} accountName - Name of the account
+ * @returns {Promise<Object>} Metadata object with lastModified, transactionCount, size
+ */
+export async function fetchAccountMetadata(accountName) {
+  const response = await fetch(`${API_BASE_URL}/accounts/${encodeURIComponent(accountName)}/metadata`);
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw new Error(`Failed to fetch metadata for ${accountName}`);
+  }
+  return await response.json();
+}
+
+/**
  * Saves transactions for a specific account to server.
  * @param {string} accountName - Name of the account
  * @param {Array<Object>} transactions - Array of transaction objects

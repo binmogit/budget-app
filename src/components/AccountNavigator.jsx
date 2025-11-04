@@ -285,6 +285,8 @@ function AccountNavigator({
               <span className="file-info">
                 {account.source === 'localStorage' && <span className="file-badge badge-localstorage">💾 JSON (localStorage)</span>}
                 {account.source === 'server' && <span className="file-badge badge-server">☁️ JSON (Server)</span>}
+                {account.source === 'serverOffline' && <span className="file-badge badge-server-offline">⛈️ JSON (Server - Offline)</span>}
+                {account.source === 'conflict' && <span className="file-badge badge-conflict">⚠️ Unsaved Changes</span>}
                 {account.size && <span className="file-size">{account.size}</span>}
               </span>
             </button>

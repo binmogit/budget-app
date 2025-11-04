@@ -71,6 +71,38 @@ app.get('/api/accounts/:name', async (req, res) => {
 });
 
 /**
+ * GET /api/accounts/:name/metadata
+ * Get metadata for a specific account without downloading full transaction data
+ */
+app.get('/api/accounts/:name/metadata', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const filePath = path.join(DATA_DIR, `${name}.json`);
+    
+    try {
+      const stats = await fs.stat(filePath);
+      const data = await fs.readFile(filePath, 'utf-8');
+      const transactions = JSON.parse(data);
+      
+      res.json({
+        lastModified: stats.mtimeMs,
+        transactionCount: Array.isArray(transactions) ? transactions.length : 0,
+        size: stats.size,
+      });
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        res.status(404).json({ error: 'Account not found' });
+      } else {
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('Error reading account metadata:', error);
+    res.status(500).json({ error: 'Failed to read account metadata' });
+  }
+});
+
+/**
  * POST /api/accounts/:name
  * Create or update an account's transactions
  */
