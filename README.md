@@ -12,6 +12,7 @@ The live demo runs in **localStorage-only mode** (no server component). Your dat
 
 - **Multi-Account Management** - Create and organize multiple account ledgers (checking, savings, credit cards)
 - **Smart CSV Import** - Automatically detects and transforms CSV formats (Amount-based or Debit/Credit columns)
+- **Google Sheets Integration** - Connect to live Google Sheets for read-only transaction feeds
 - **Flexible Storage** - Choose between browser localStorage (demo/local use) or server-side JSON storage (local setup only)
 - **Export & Backup** - Download individual accounts as CSV or export all data as a ZIP archive
 - **Split Transactions** - Track expenses across multiple categories with linked TransactionIDs
@@ -31,6 +32,14 @@ The live demo runs in **localStorage-only mode** (no server component). Your dat
 - Data stored in `server/data/` directory
 - **Not available in the GitHub Pages demo** (everyone would share the same data)
 - For personal use: set up your own server or use localhost
+
+### 📊 Google Sheets (Read-Only Live Feed)
+- Connect to your Google Sheets as a live data source
+- Users maintain transactions in their Google Sheet
+- App periodically refreshes and caches data locally
+- **Read-only** - make all changes in the sheet, refresh in app
+- **Quick Setup**: Run `npm run setup:sheets` - interactive wizard handles everything!
+- See [GOOGLE_SHEETS_SETUP.md](./GOOGLE_SHEETS_SETUP.md) for details
 
 ## Installation
 

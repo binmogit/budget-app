@@ -93,8 +93,12 @@ function AccountManager() {
       const isSynced = metadata?.syncedToServer ?? false;
       const existsOnServer = serverAccounts.has(accountName);
       const isServerAccount = metadata?.serverAccount ?? false; // Flag indicating this is a server-associated account
+      const isGoogleSheet = !!(metadata?.googleSheetId && metadata?.sheetName); // Has Google Sheets connection info
       
-      if (isSynced && serverOnline && existsOnServer) {
+      if (isGoogleSheet) {
+        // Google Sheets account (read-only live feed)
+        storageSource = 'googleSheet';
+      } else if (isSynced && serverOnline && existsOnServer) {
         // Account is synced and server confirms it exists
         storageSource = 'server';
       } else if (isSynced && !serverOnline) {
@@ -123,6 +127,7 @@ function AccountManager() {
         source: storageSource,
         accountName,
         transactionCount: transactions.length,
+        lastSync: metadata?.lastSync, // For Google Sheets accounts
       };
     });
 
@@ -357,7 +362,7 @@ function AccountManager() {
   }, [refreshKey, serverOnline]);
 
   // Create a new account with sample transactions or imported data
-  const handleCreateAccount = async (accountName, storageType, transactions = null) => {
+  const handleCreateAccount = async (accountName, storageType, transactions = null, metadata = {}) => {
     const existingAccounts = listAccounts();
     
     if (existingAccounts.includes(accountName)) {
@@ -376,7 +381,36 @@ function AccountManager() {
       },
     ];
     
-    // Determine if this should be marked as synced
+    // Handle Google Sheets account
+    if (storageType === 'googleSheets') {
+      console.log('Creating Google Sheets account:', {
+        accountName,
+        metadata,
+        googleSheetId: metadata.googleSheetId,
+        sheetName: metadata.sheetName,
+        lastSync: metadata.lastSync,
+      });
+      
+      const success = saveTransactions(accountName, accountTransactions, {
+        syncedToServer: false,
+        serverAccount: false,
+        googleSheetId: metadata.googleSheetId,
+        sheetName: metadata.sheetName,
+        lastSync: metadata.lastSync,
+      });
+      
+      if (success) {
+        // Verify metadata was saved
+        const savedMetadata = getAccountMetadata(accountName);
+        console.log('Saved Google Sheets metadata:', savedMetadata);
+        
+        showToast(`Google Sheets account "${accountName}" connected successfully`, 'success');
+        setRefreshKey(prev => prev + 1); // Refresh account list
+      }
+      return;
+    }
+    
+    // Determine if this should be marked as synced (regular server account)
     const willSyncToServer = storageType === 'server' && serverOnline;
     
     // Save to localStorage with appropriate sync status

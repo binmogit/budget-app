@@ -32,15 +32,18 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "server": "node server/index.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run server\""
+    "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
+    "setup:sheets": "node server/setup-sheets.js"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
     "@googleapis/drive": "^19.1.0",
+    "@googleapis/sheets": "^12.0.0",
     "chart.js": "^4.5.1",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "express": "^5.1.0",
+    "googleapis": "^164.1.0",
     "jszip": "^3.10.1",
     "papaparse": "^5.4.1",
     "react": "^19.1.1",

@@ -90,9 +90,9 @@ function AccountNavigator({
     setShowCreateDialog(true);
   };
 
-  const handleCreateSubmit = async (accountName, storageType, transactions) => {
+  const handleCreateSubmit = async (accountName, storageType, transactions, metadata) => {
     setShowCreateDialog(false);
-    await onCreateAccount(accountName, storageType, transactions);
+    await onCreateAccount(accountName, storageType, transactions, metadata);
   };
 
   const handleDeleteClick = () => {
@@ -130,6 +130,10 @@ function AccountNavigator({
   const handleMoveClick = () => {
     if (!selectedAccount) {
       console.warn('No account selected.');
+      return;
+    }
+    if (selectedAccount.source === 'googleSheet') {
+      console.warn('Google Sheets accounts cannot be moved.');
       return;
     }
     setAccountToMove(selectedAccount);
@@ -208,8 +212,14 @@ function AccountNavigator({
             onClick={handleMoveClick}
             className="button-secondary"
             style={{ flex: 1 }}
-            disabled={!selectedAccount}
-            title={selectedAccount?.source === 'localStorage' ? 'Move to server' : 'Remove from server'}
+            disabled={!selectedAccount || selectedAccount.source === 'googleSheet'}
+            title={
+              selectedAccount?.source === 'googleSheet' 
+                ? 'Google Sheets accounts cannot be moved' 
+                : selectedAccount?.source === 'localStorage' 
+                  ? 'Move to server' 
+                  : 'Remove from server'
+            }
           >
             Move
           </button>
@@ -287,6 +297,7 @@ function AccountNavigator({
                 {account.source === 'server' && <span className="file-badge badge-server">☁️ JSON (Server)</span>}
                 {account.source === 'serverOffline' && <span className="file-badge badge-server-offline">⛈️ JSON (Server - Offline)</span>}
                 {account.source === 'conflict' && <span className="file-badge badge-conflict">⚠️ Unsaved Changes</span>}
+                {account.source === 'googleSheet' && <span className="file-badge badge-google-sheet">📊 Google Sheets</span>}
                 {account.size && <span className="file-size">{account.size}</span>}
               </span>
             </button>

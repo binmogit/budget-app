@@ -40,7 +40,7 @@ export function getTransactions(accountName) {
 /**
  * Retrieves metadata for a specific account from localStorage.
  * @param {string} accountName - Name of the account
- * @returns {Object|null} Metadata object with lastModified, transactionCount, etc.
+ * @returns {Object|null} Metadata object with lastModified, transactionCount, syncedToServer, serverAccount, googleSheetId, sheetName, lastSync
  */
 export function getAccountMetadata(accountName) {
   try {
@@ -64,6 +64,9 @@ export function getAccountMetadata(accountName) {
  * @param {Object} options - Optional save options
  * @param {boolean} options.syncedToServer - Whether this data is synced with server
  * @param {boolean} options.serverAccount - Whether this is a server-associated account
+ * @param {string} options.googleSheetId - Google Sheet ID if this is a Sheets account
+ * @param {string} options.sheetName - Sheet name if this is a Sheets account
+ * @param {number} options.lastSync - Last sync timestamp for Sheets accounts
  * @returns {boolean} True if save succeeded, false otherwise
  * @example
  * const success = saveTransactions('ING', [
@@ -99,6 +102,16 @@ export function saveTransactions(accountName, transactions, options = {}) {
       serverAccount: options.serverAccount !== undefined
         ? options.serverAccount
         : (existingMetadata?.serverAccount ?? false),
+      // Google Sheets metadata
+      googleSheetId: options.googleSheetId !== undefined
+        ? options.googleSheetId
+        : (existingMetadata?.googleSheetId ?? null),
+      sheetName: options.sheetName !== undefined
+        ? options.sheetName
+        : (existingMetadata?.sheetName ?? null),
+      lastSync: options.lastSync !== undefined
+        ? options.lastSync
+        : (existingMetadata?.lastSync ?? null),
     };
     localStorage.setItem(metadataKey, JSON.stringify(metadata));
     

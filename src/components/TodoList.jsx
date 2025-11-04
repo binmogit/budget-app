@@ -4,6 +4,13 @@
  */
 const TODO_ITEMS = [
   {
+    id: 'google-sheets-integration',
+    title: 'Google Sheets read-only integration',
+    description: 'Enable users to connect a Google Sheets sheet as a live data source. Users provide Sheet ID + sheet name, backend fetches data via Google Sheets API, transactions cached locally for offline viewing. Read-only—users make changes in their sheet, app refreshes periodically.',
+    status: 'Planned',
+    owner: 'Data Entry'
+  },
+  {
     id: 'csv-import-formats',
     title: 'Expand CSV import format support',
     description: 'Add support for additional CSV formats from different banks and financial institutions. Develop more import methods that detect and handle various column layouts, date formats, and split transaction representations.',

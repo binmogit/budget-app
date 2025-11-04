@@ -3,6 +3,7 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { google } from 'googleapis';
 
 /* global process */
 
@@ -221,6 +222,263 @@ app.post('/api/sync', async (req, res) => {
   } catch (error) {
     console.error('Error syncing accounts:', error);
     res.status(500).json({ error: 'Failed to sync accounts' });
+  }
+});
+
+/**
+ * POST /api/sheets/fetch
+ * Fetch transaction data from Google Sheets
+ * Proxies Google Sheets API calls to keep OAuth credentials secure
+ * For public sheets without credentials, tries CSV export URL
+ */
+app.post('/api/sheets/fetch', async (req, res) => {
+  try {
+    const { sheetId, sheetName } = req.body;
+
+    console.log('=== Google Sheets Fetch Request ===');
+    console.log('Sheet ID:', sheetId);
+    console.log('Sheet Name:', sheetName);
+
+    if (!sheetId || !sheetName) {
+      return res.status(400).json({ error: 'Sheet ID and sheet name are required' });
+    }
+
+    // Try to use service account credentials if available
+    let auth;
+    const credentialsPath = path.join(__dirname, 'credentials.json');
+    let hasCredentials = false;
+    
+    try {
+      await fs.access(credentialsPath);
+      console.log('✓ Credentials file found at:', credentialsPath);
+      
+      // Credentials file exists, use it
+      auth = new google.auth.GoogleAuth({
+        keyFile: credentialsPath,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+      });
+      hasCredentials = true;
+      
+      // Get the client email for logging
+      const credentials = JSON.parse(await fs.readFile(credentialsPath, 'utf-8'));
+      console.log('✓ Using service account:', credentials.client_email);
+    } catch (error) {
+      console.log('✗ No credentials.json found:', error.message);
+    }
+
+    // If we have credentials, use the API
+    if (hasCredentials) {
+      const sheets = google.sheets({ version: 'v4', auth });
+
+      console.log('→ Attempting to fetch sheet data...');
+      
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `${sheetName}!A:Z`,
+        });
+
+        console.log('✓ Successfully fetched sheet data');
+        console.log('  Rows returned:', response.data.values?.length || 0);
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+          return res.json({ transactions: [] });
+        }
+
+        const transactions = parseSheetRows(rows);
+        console.log('✓ Parsed transactions:', transactions.length);
+        return res.json({ transactions });
+      } catch (apiError) {
+        console.error('✗ Google Sheets API error details:', {
+          message: apiError.message,
+          code: apiError.code,
+          errors: apiError.errors,
+          sheetId,
+          sheetName
+        });
+        
+        // Provide helpful error message based on error code
+        let errorMessage = apiError.message;
+        if (apiError.code === 404) {
+          errorMessage = 'Sheet not found. Make sure you:\n1. Shared the sheet with the service account email\n2. Used the correct Sheet ID\n3. Used the correct sheet name (tab name)';
+        } else if (apiError.code === 403) {
+          errorMessage = 'Permission denied. The sheet must be shared with the service account email with "Viewer" permission.';
+        }
+        
+        return res.status(apiError.code || 500).json({ 
+          error: errorMessage
+        });
+      }
+    }
+
+    // No credentials - sheet must be publicly accessible
+    // We cannot use the Sheets API without auth, so return helpful error
+    return res.status(403).json({ 
+      error: 'No authentication configured. Please either:\n\n1. Set up service account (see GOOGLE_SHEETS_SETUP.md)\n2. Or share your sheet URL with your email and we\'ll add API key support\n\nNote: "Anyone with the link" sharing does NOT work with the API without credentials.' 
+    });
+
+  } catch (error) {
+    console.error('Error fetching Google Sheets data:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to fetch sheet data' 
+    });
+  }
+});
+
+/**
+ * Helper function to parse sheet rows into transaction objects
+ * Uses same logic as CSV importer: handles Amount OR Debit/Credit columns,
+ * auto-generates TransactionID if missing, allows empty Category
+ */
+function parseSheetRows(rows) {
+  console.log('→ Parsing sheet rows...');
+  console.log('  First row (headers):', rows[0]);
+  console.log('  Second row (sample):', rows[1]);
+  
+  const headers = rows[0];
+  const transactions = [];
+
+  // Detect format based on available columns
+  const hasAmount = headers.includes('Amount');
+  const hasDebitCredit = (headers.includes('Debit') && headers.includes('Credit')) ||
+                         (headers.includes('Debits') && headers.includes('Credits'));
+  const hasTransactionID = headers.includes('TransactionID');
+  const hasCategory = headers.includes('Category');
+
+  // Determine which column names to use for debit/credit
+  const debitCol = headers.includes('Debit') ? 'Debit' : 'Debits';
+  const creditCol = headers.includes('Credit') ? 'Credit' : 'Credits';
+
+  console.log('  Column detection:', { hasAmount, hasDebitCredit, hasTransactionID, hasCategory, debitCol, creditCol });
+
+  // Validate we have Date and Description (minimum required)
+  if (!headers.includes('Date')) {
+    console.log('  ✗ Missing required column: Date');
+    return [];
+  }
+  if (!headers.includes('Description')) {
+    console.log('  ✗ Missing required column: Description');
+    return [];
+  }
+
+  // Validate we have either Amount or both Debit and Credit
+  if (!hasAmount && !hasDebitCredit) {
+    console.log('  ✗ Must have either "Amount" column or both "Debit" and "Credit" columns');
+    return [];
+  }
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const transaction = {};
+    
+    // Map row values to headers
+    for (let j = 0; j < headers.length; j++) {
+      const header = headers[j];
+      const value = row[j] || '';
+      transaction[header] = value;
+    }
+
+    // Skip empty rows (no Date)
+    if (!transaction.Date) {
+      continue;
+    }
+
+    // Build normalized transaction object
+    const normalized = {
+      Date: transaction.Date, // TODO: Add date normalization if needed
+      TransactionID: hasTransactionID ? transaction.TransactionID : `AUTO-${i}`,
+      Description: transaction.Description || '',
+      Category: hasCategory ? transaction.Category : '',
+    };
+
+    // Handle Amount vs Debit/Credit
+    if (hasAmount) {
+      normalized.Amount = transaction.Amount;
+    } else {
+      // Merge Debit/Credit into Amount
+      // Debit = expense (negative), Credit = income (positive)
+      // Strip currency symbols and commas before parsing
+      const debitStr = (transaction[debitCol] || '0').replace(/[$,]/g, '');
+      const creditStr = (transaction[creditCol] || '0').replace(/[$,]/g, '');
+      const debit = parseFloat(debitStr);
+      const credit = parseFloat(creditStr);
+      
+      if (credit > 0) {
+        normalized.Amount = credit.toString();
+      } else if (debit > 0) {
+        normalized.Amount = (-debit).toString();
+      } else {
+        normalized.Amount = '0';
+      }
+    }
+
+    transactions.push(normalized);
+  }
+
+  console.log('  ✓ Valid transactions parsed:', transactions.length);
+  if (transactions.length > 0) {
+    console.log('  Sample transaction:', transactions[0]);
+  }
+
+  return transactions;
+}
+
+/**
+ * GET /api/sheets/credentials
+ * Check if credentials are configured
+ */
+app.get('/api/sheets/credentials', async (req, res) => {
+  const credentialsPath = path.join(__dirname, 'credentials.json');
+  
+  try {
+    await fs.access(credentialsPath);
+    const content = await fs.readFile(credentialsPath, 'utf-8');
+    const data = JSON.parse(content);
+    
+    res.json({
+      hasCredentials: true,
+      email: data.client_email,
+      projectId: data.project_id,
+    });
+  } catch {
+    res.json({
+      hasCredentials: false,
+    });
+  }
+});
+
+/**
+ * POST /api/sheets/credentials
+ * Upload service account credentials
+ */
+app.post('/api/sheets/credentials', async (req, res) => {
+  try {
+    const credentials = req.body;
+    
+    // Validate credentials format
+    if (!credentials || typeof credentials !== 'object') {
+      return res.status(400).json({ error: 'Invalid credentials format' });
+    }
+    
+    if (credentials.type !== 'service_account' || !credentials.client_email || !credentials.private_key) {
+      return res.status(400).json({ 
+        error: 'Invalid service account file. Missing required fields.' 
+      });
+    }
+    
+    // Save credentials
+    const credentialsPath = path.join(__dirname, 'credentials.json');
+    await fs.writeFile(credentialsPath, JSON.stringify(credentials, null, 2));
+    
+    res.json({ 
+      success: true, 
+      message: 'Credentials saved successfully',
+      email: credentials.client_email,
+    });
+  } catch (error) {
+    console.error('Error saving credentials:', error);
+    res.status(500).json({ error: 'Failed to save credentials' });
   }
 });
 

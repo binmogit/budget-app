@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { saveTransactions, getAccountMetadata, markAsSynced, markAsUnsynced } from '../utils/transactionStorage.js';
 import { saveAccountToServer, fetchAccountMetadata, fetchAccountTransactions } from '../utils/serverApi.js';
+import { refreshSheetData } from '../utils/sheetsApi.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import ConflictResolutionDialog from './ConflictResolutionDialog.jsx';
 import Toast from './Toast.jsx';
@@ -41,15 +42,52 @@ function TransactionViewer({
 
   // Toast notification state
   const [toast, setToast] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
+  };
+
+  // Refresh Google Sheets data
+  const handleRefreshSheet = async () => {
+    if (!selectedAccount || selectedAccount.source !== 'googleSheet') return;
+
+    const metadata = getAccountMetadata(selectedAccount.accountName);
+    if (!metadata || !metadata.googleSheetId || !metadata.sheetName) {
+      showToast('Missing Google Sheets connection info', 'error');
+      return;
+    }
+
+    setIsRefreshing(true);
+    try {
+      const transactions = await refreshSheetData(metadata.googleSheetId, metadata.sheetName);
+      
+      // Save refreshed data to localStorage cache
+      saveTransactions(selectedAccount.accountName, transactions, {
+        googleSheetId: metadata.googleSheetId,
+        sheetName: metadata.sheetName,
+        lastSync: Date.now(),
+      });
+
+      showToast('Sheet data refreshed successfully', 'success');
+      onRefresh(); // Trigger parent refresh to reload data
+    } catch (error) {
+      showToast(`Failed to refresh sheet: ${error.message}`, 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Enter edit mode
   const handleEnterEditMode = () => {
     if (!selectedAccount) {
       showToast('No account selected.', 'warning');
+      return;
+    }
+
+    // Prevent editing Google Sheets accounts
+    if (selectedAccount.source === 'googleSheet') {
+      showToast('Google Sheets accounts are read-only. Make changes in the Google Sheet and click Refresh.', 'warning');
       return;
     }
     
@@ -296,6 +334,7 @@ function TransactionViewer({
                 {selectedAccount.source === 'server' && '☁️ Server'}
                 {selectedAccount.source === 'serverOffline' && '⛈️ Server (Offline)'}
                 {selectedAccount.source === 'conflict' && '⚠️ Unsaved Changes'}
+                {selectedAccount.source === 'googleSheet' && '📊 Google Sheets (Read-Only)'}
               </span>
             </div>
 
@@ -340,6 +379,16 @@ function TransactionViewer({
                 )}
               </>
             )}
+
+            {selectedAccount.source === 'googleSheet' && (
+              <>
+                <div className="metadata-note">📊 Live Google Sheets connection - data is read-only in this view</div>
+                <div className="metadata-note">
+                  Last synced: {selectedAccount.lastSync ? new Date(selectedAccount.lastSync).toLocaleString() : 'Never'}.
+                  Click &quot;Refresh&quot; to fetch latest data from sheet.
+                </div>
+              </>
+            )}
           </div>
         )}
         {status === 'idle' && <div className="placeholder">Select an account to preview its transactions.</div>}
@@ -350,7 +399,16 @@ function TransactionViewer({
             {/* Edit mode toolbar */}
             {selectedAccount && (
               <div className="edit-toolbar">
-                {!isEditMode ? (
+                {selectedAccount.source === 'googleSheet' ? (
+                  <button
+                    type="button"
+                    onClick={handleRefreshSheet}
+                    className="button-primary"
+                    disabled={isRefreshing}
+                  >
+                    {isRefreshing ? 'Refreshing...' : 'Refresh from Sheet'}
+                  </button>
+                ) : !isEditMode ? (
                   <button
                     type="button"
                     onClick={handleEnterEditMode}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Papa from 'papaparse';
 import Modal from './Modal.jsx';
 import { parseAndNormalizeDate } from '../utils/dateUtils.js';
+import { extractSheetId, validateSheetFormat } from '../utils/sheetsApi.js';
 
 /**
  * Dialog for creating a new account with storage location choice and optional CSV import.
@@ -19,10 +20,13 @@ function CreateAccountDialog({
 }) {
   const [accountName, setAccountName] = useState('');
   const [storageType, setStorageType] = useState('localStorage');
-  const [creationType, setCreationType] = useState('sample'); // 'sample', 'empty', or 'import'
+  const [creationType, setCreationType] = useState('sample'); // 'sample', 'empty', 'import', or 'googleSheets'
   const [csvFile, setCsvFile] = useState(null);
   const [dateFormat, setDateFormat] = useState('auto'); // 'auto', 'dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd'
   const [importError, setImportError] = useState(null);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [sheetName, setSheetName] = useState('');
+  const [isValidatingSheet, setIsValidatingSheet] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -30,6 +34,61 @@ function CreateAccountDialog({
     if (!trimmed) return;
 
     setImportError(null);
+
+    if (creationType === 'googleSheets') {
+      // Connect to Google Sheets
+      if (!sheetUrl.trim() || !sheetName.trim()) {
+        setImportError('Please provide both Sheet URL/ID and sheet name');
+        return;
+      }
+
+      setIsValidatingSheet(true);
+      
+      const sheetId = extractSheetId(sheetUrl);
+      if (!sheetId) {
+        setImportError('Invalid Google Sheets URL or ID');
+        setIsValidatingSheet(false);
+        return;
+      }
+
+      // Validate and fetch sheet data
+      validateSheetFormat(sheetId, sheetName.trim())
+        .then((result) => {
+          setIsValidatingSheet(false);
+          
+          if (!result.valid) {
+            setImportError(result.error || 'Failed to validate Google Sheet');
+            return;
+          }
+
+          console.log('Calling onSubmit with Google Sheets data:', {
+            accountName: trimmed,
+            storageType: 'googleSheets',
+            transactionsCount: result.transactions.length,
+            metadata: {
+              googleSheetId: sheetId,
+              sheetName: sheetName.trim(),
+              lastSync: Date.now(),
+            }
+          });
+
+          // Pass Google Sheets metadata along with transactions
+          onSubmit(trimmed, 'googleSheets', result.transactions, {
+            googleSheetId: sheetId,
+            sheetName: sheetName.trim(),
+            lastSync: Date.now(),
+          });
+          
+          resetForm();
+          onClose();
+        })
+        .catch((error) => {
+          setIsValidatingSheet(false);
+          setImportError(`Failed to connect to Google Sheets: ${error.message}`);
+        });
+      
+      return; // Don't continue with normal submit flow
+    }
 
     if (creationType === 'import') {
       // Import CSV file
@@ -177,6 +236,9 @@ function CreateAccountDialog({
     setCsvFile(null);
     setDateFormat('auto');
     setImportError(null);
+    setSheetUrl('');
+    setSheetName('');
+    setIsValidatingSheet(false);
   };
 
   const handleClose = () => {
@@ -255,7 +317,69 @@ function CreateAccountDialog({
                 <strong>📥 Import from CSV file</strong>
               </span>
             </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: serverOnline ? 'pointer' : 'not-allowed', opacity: serverOnline ? 1 : 0.5 }}>
+              <input
+                type="radio"
+                name="creation"
+                value="googleSheets"
+                checked={creationType === 'googleSheets'}
+                onChange={(e) => setCreationType(e.target.value)}
+                disabled={!serverOnline}
+              />
+              <span>
+                <strong>📊 Connect Google Sheets</strong>
+                <span style={{ fontSize: '0.85rem', color: serverOnline ? 'var(--text-secondary)' : '#f87171', marginLeft: '8px' }}>
+                  {serverOnline ? '(read-only live feed)' : '(requires server)'}
+                </span>
+              </span>
+            </label>
           </div>
+
+          {creationType === 'googleSheets' && (
+            <div style={{ marginTop: '0.75rem', paddingLeft: '28px' }}>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <label htmlFor="sheet-url" style={{ fontSize: '0.9rem', fontWeight: '500', display: 'block', marginBottom: '0.25rem' }}>
+                  Google Sheet URL or ID
+                </label>
+                <input
+                  id="sheet-url"
+                  type="text"
+                  className="form-input"
+                  value={sheetUrl}
+                  onChange={(e) => setSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  style={{ fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '0.75rem' }}>
+                <label htmlFor="sheet-name" style={{ fontSize: '0.9rem', fontWeight: '500', display: 'block', marginBottom: '0.25rem' }}>
+                  Sheet Name
+                </label>
+                <input
+                  id="sheet-name"
+                  type="text"
+                  className="form-input"
+                  value={sheetName}
+                  onChange={(e) => setSheetName(e.target.value)}
+                  placeholder="Sheet1 or Transactions"
+                  style={{ fontSize: '0.9rem' }}
+                />
+              </div>
+
+              {importError && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#f87171', whiteSpace: 'pre-line' }}>
+                  ⚠️ {importError}
+                </div>
+              )}
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Sheet must be publicly accessible or use service account authentication.
+                Required columns: Date, TransactionID, Description, Category, Amount (or Debit+Credit).
+              </div>
+            </div>
+          )}
 
           {creationType === 'import' && (
             <div style={{ marginTop: '0.75rem', paddingLeft: '28px' }}>
@@ -371,9 +495,14 @@ function CreateAccountDialog({
           <button 
             type="submit" 
             className="button-primary"
-            disabled={!accountName.trim() || (creationType === 'import' && !csvFile)}
+            disabled={
+              !accountName.trim() || 
+              (creationType === 'import' && !csvFile) ||
+              (creationType === 'googleSheets' && (!sheetUrl.trim() || !sheetName.trim())) ||
+              isValidatingSheet
+            }
           >
-            Create
+            {isValidatingSheet ? 'Validating Sheet...' : 'Create'}
           </button>
         </div>
       </form>

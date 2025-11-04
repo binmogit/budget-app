@@ -29,3 +29,8 @@ dist-ssr
 
 # Server data
 server/data/*.json
+
+# Google Cloud credentials (NEVER commit these)
+server/credentials.json
+server/*.json
+credentials.json

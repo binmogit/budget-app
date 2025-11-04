@@ -16,6 +16,9 @@ function WelcomeScreen({ onNavigate }) {
           <button type="button" className="primary-cta" onClick={() => onNavigate('accounts')}>
             Open Account Manager
           </button>
+          <button type="button" className="secondary-cta" onClick={() => onNavigate('sheets-setup')}>
+            Setup Google Sheets
+          </button>
           <button type="button" className="secondary-cta" onClick={() => onNavigate('todo')}>
             View To-Do List
           </button>
@@ -27,6 +30,10 @@ function WelcomeScreen({ onNavigate }) {
           <p>
             Choose between browser localStorage for quick access or server storage for cross-device sync. Create, rename, delete, and move accounts between storage locations with full export functionality.
           </p>
+        </article>
+        <article className="feature-tile">
+          <h3>Google Sheets Integration</h3>
+          <p>Connect to live Google Sheets as read-only data sources. Maintain transactions in your spreadsheet and refresh in-app to view the latest data. One-click setup wizard handles all configuration.</p>
         </article>
         <article className="feature-tile">
           <h3>Data Security First</h3>
